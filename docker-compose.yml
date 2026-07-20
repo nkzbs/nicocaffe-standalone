@@ -1,0 +1,14 @@
+services:
+  nicocaffe:
+    build: .
+    container_name: nicocaffe-standalone
+    ports:
+      - "4100:80"
+    volumes:
+      - nicocaffe_data:/data
+    environment:
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+    restart: unless-stopped
+
+volumes:
+  nicocaffe_data:
