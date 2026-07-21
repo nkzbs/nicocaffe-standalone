@@ -3471,8 +3471,8 @@ const FONT_STYLE = (
   `}</style>
 );
 
-async function safeList(fn) {
-  try { return await fn(); } catch (e) { return []; }
+async function safeList(fn, fallback = []) {
+  try { return await fn(); } catch (e) { return fallback; }
 }
 
 export default function App() {
@@ -3487,12 +3487,12 @@ export default function App() {
       fornitori, listini, corrispettivi, ordiniAcquisto, attrezzature, interventi, furgoni, costiMezzo,
       visite, comunicazioni, giriConsegna,
     ] = await Promise.all([
-      api.clienti.list(), api.agenti.list(), api.prodotti.list(), api.ordini.list(),
-      api.fatture.list(), api.contabilita.movimenti(), api.contabilita.pianoConti(),
-      api.magazzinoVerde.get(), api.lotti.list(),
-      api.fornitori.list(), api.listini.list(), api.corrispettivi.list(), api.ordiniAcquisto.list(),
-      api.attrezzature.list(), api.interventi.list(), api.furgoni.list(), api.costiMezzo.list(),
-      api.visite.list(), api.comunicazioni.list(), api.giriConsegna.list(),
+      safeList(() => api.clienti.list()), safeList(() => api.agenti.list()), safeList(() => api.prodotti.list()), safeList(() => api.ordini.list()),
+      safeList(() => api.fatture.list()), safeList(() => api.contabilita.movimenti()), safeList(() => api.contabilita.pianoConti()),
+      safeList(() => api.magazzinoVerde.get(), { kgDisponibili: 0 }), safeList(() => api.lotti.list()),
+      safeList(() => api.fornitori.list()), safeList(() => api.listini.list()), safeList(() => api.corrispettivi.list()), safeList(() => api.ordiniAcquisto.list()),
+      safeList(() => api.attrezzature.list()), safeList(() => api.interventi.list()), safeList(() => api.furgoni.list()), safeList(() => api.costiMezzo.list()),
+      safeList(() => api.visite.list()), safeList(() => api.comunicazioni.list()), safeList(() => api.giriConsegna.list()),
     ]);
     const ammortamentiMesiRes = await safeList(() => api.ammortamenti.list());
     const ammortamentiMesi = ammortamentiMesiRes.map(r => r.mese);

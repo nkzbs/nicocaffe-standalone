@@ -29,7 +29,7 @@ async function request(method, path, body) {
   const res = await fetch('/api' + path, {
     method,
     headers,
-    body: body ? JSON.stringify(toSnake(body)) : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || ('Errore ' + res.status));
