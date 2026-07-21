@@ -1,5 +1,5 @@
 // ============================================================
-// NICO CAFFÃˆ â€” GESTIONALE STANDALONE â€” Backend Express
+// NICO CAFFÈ — GESTIONALE STANDALONE — Backend Express
 // server.js
 // ============================================================
 const express = require('express');

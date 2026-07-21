@@ -37,7 +37,7 @@ module.exports = function (app, db, deps) {
 
     const movId = uid('MV');
     db.prepare('INSERT INTO movimenti (id, data, descrizione, riferimento) VALUES (?,?,?,?)')
-      .run(movId, oggi, 'Fattura ' + numero + ' â€” ' + cliente.ragione_sociale, id);
+      .run(movId, oggi, 'Fattura ' + numero + ' — ' + cliente.ragione_sociale, id);
     const insMovRiga = db.prepare('INSERT INTO movimenti_righe (movimento_id, conto, dare, avere) VALUES (?,?,?,?)');
     insMovRiga.run(movId, '1100', totale, 0);
     insMovRiga.run(movId, '4000', 0, imponibile);
