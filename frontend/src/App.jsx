@@ -1498,13 +1498,37 @@ function OrdiniAcquistoView({ db, setDb }) {
   );
 }
 
-function LottiView({ db }) {
+function LottiView({ db, setDb }) {
   const oggi = todayISO();
+  const [showProd, setShowProd] = useState(false);
+  const [saving, setSaving] = useState(false);
   const lotti = [...(db.lotti || [])].sort((a, b) => a.scadenza.localeCompare(b.scadenza));
+
+  const prodFields = [
+    { name: 'data', label: 'Data tostatura', type: 'date' },
+    { name: 'prodottoId', label: 'Prodotto da produrre', type: 'select', options: db.prodotti.filter(p => p.unita === 'kg').map(p => ({ value: p.id, label: p.nome })) },
+    { name: 'kgVerde', label: 'Kg caffè verde impiegati', type: 'number' },
+  ];
+
+  async function avviaProduzione(values) {
+    setSaving(true);
+    try {
+      const res = await api.lotti.create(values);
+      const [lotti2, prodotti, magazzinoVerde] = await Promise.all([api.lotti.list(), api.prodotti.list(), api.magazzinoVerde.get()]);
+      setDb(d => ({ ...d, lotti: lotti2, prodotti, magazzinoVerde }));
+      alert(`Tostatura registrata: ${res.kgOttenuti} kg ottenuti.`);
+      setShowProd(false);
+    } catch (e) {
+      alert('Errore: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg bg-amber-100 px-4 py-2 text-xs text-stone-500">Lettura dal backend reale. La produzione/tostatura non ha ancora una route di scrittura.</div>
+      <div className="flex justify-end"><Button onClick={() => setShowProd(true)}><Plus size={15} /> Nuova tostatura</Button></div>
+      {showProd && <FormModal title="Avvia tostatura" fields={prodFields} initial={{ data: todayISO() }} onClose={() => setShowProd(false)} onSave={avviaProduzione} saving={saving} />}
       <DataTable
         columns={[
           { key: 'prodotto', label: 'Prodotto', render: r => db.prodotti.find(p => p.id === r.prodottoId)?.nome || r.prodottoId },
@@ -1558,6 +1582,7 @@ function FatturazioneView({ db, setDb }) {
   const [payFattura, setPayFattura] = useState(null);
   const [parzialeFattura, setParzialeFattura] = useState(null);
   const [importoParziale, setImportoParziale] = useState('');
+  const [pagamentiFattura, setPagamentiFattura] = useState([]);
   const [notaTarget, setNotaTarget] = useState(null);
   const [notaForm, setNotaForm] = useState({ importoImponibile: '', motivo: '' });
   const [tab, setTab] = useState('documenti');
@@ -1595,6 +1620,17 @@ function FatturazioneView({ db, setDb }) {
       alert('Errore incasso: ' + e.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function stornaPagamento(pagamentoId) {
+    try {
+      await api.fatturePagamenti.storna(pagamentoId);
+      await refreshDopoContabile();
+      const pagamenti = await api.fatture.pagamenti(payFattura.id);
+      setPagamentiFattura(pagamenti);
+    } catch (e) {
+      alert('Errore storno: ' + e.message);
     }
   }
 
@@ -1680,7 +1716,7 @@ function FatturazioneView({ db, setDb }) {
             actions={r => (
               <div className="flex gap-1 flex-wrap">
                 <Button size="sm" variant="ghost" onClick={() => setPdfHtml(buildFatturaHTML(r, db))}>PDF</Button>
-                {r.stato !== 'pagata' && <Button size="sm" variant="ghost" onClick={() => setPayFattura(r)}>Incassa</Button>}
+                {r.stato !== 'pagata' && <Button size="sm" variant="ghost" onClick={() => { setPayFattura(r); api.fatture.pagamenti(r.id).then(setPagamentiFattura).catch(() => setPagamentiFattura([])); }}>Incassa</Button>}
                 {r.stato !== 'pagata' && <Button size="sm" variant="ghost" onClick={() => { setParzialeFattura(r); setImportoParziale(''); }}>Parziale</Button>}
                 <Button size="sm" variant="ghost" onClick={() => { setNotaTarget(r); setNotaForm({ importoImponibile: '', motivo: '' }); }}>N.C.</Button>
               </div>
@@ -1754,7 +1790,18 @@ function FatturazioneView({ db, setDb }) {
               </select>
             </div>
             <div className="flex justify-between text-sm"><span className="text-stone-500">Totale fattura</span><span className="font-mono-num">{formatEUR(payFattura.totale)}</span></div>
-            <p className="text-xs text-stone-400">Il backend reale registra sempre l'incasso completo del residuo (i pagamenti parziali non sono ancora supportati).</p>
+            {pagamentiFattura.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-stone-500 mb-1">Pagamenti parziali registrati</p>
+                {pagamentiFattura.map(p => (
+                  <div key={p.id} className={cn('flex items-center justify-between text-xs py-1', p.stornato ? 'line-through text-stone-400' : '')}>
+                    <span>{formatDate(p.data)} — {formatEUR(p.importo)}</span>
+                    {!p.stornato && <button onClick={() => stornaPagamento(p.id)} className="text-red-600 hover:underline ml-2">Storna</button>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-stone-400">Questo pulsante incassa sempre l'intero residuo. Per un pagamento parziale usa il pulsante "Parziale" nella tabella.</p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setPayFattura(null)}>Annulla</Button>
               <Button onClick={confermaPagamento} disabled={busy}>{busy ? 'Registrazione…' : 'Incassa tutto'}</Button>
@@ -3384,7 +3431,7 @@ function AdminApp({ db, setDb, onLogout, onReload, utente }) {
       {active === 'ordini'         && <OrdiniView db={db} setDb={setDb} />}
       {active === 'fornitori'      && <FornitoriView db={db} setDb={setDb} />}
       {active === 'ordiniAcquisto' && <OrdiniAcquistoView db={db} setDb={setDb} />}
-      {active === 'lotti'          && <LottiView db={db} />}
+      {active === 'lotti'          && <LottiView db={db} setDb={setDb} />}
       {active === 'flotta'         && <FlottaView db={db} setDb={setDb} />}
       {active === 'fatturazione'   && <FatturazioneView db={db} setDb={setDb} />}
       {active === 'insoluti'       && <InsolutiView db={db} setDb={setDb} />}

@@ -92,6 +92,7 @@ export const api = {
   },
   lotti: {
     list: () => request('GET', '/lotti'),
+    create: (b) => request('POST', '/lotti', b),
   },
   fornitori: {
     list: () => request('GET', '/fornitori'),
