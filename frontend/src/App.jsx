@@ -467,14 +467,6 @@ function LoginScreen({ onLogin, loginError }) {
             {loginError && <p className="text-sm text-red-700">{loginError}</p>}
             <Button className="w-full justify-center" onClick={handleLogin} disabled={busy}>{busy ? 'Accesso…' : 'Accedi'}</Button>
           </div>
-          <div className="mt-4 pt-4 border-t border-stone-200">
-            <p className="text-xs text-stone-400 font-medium mb-1">Credenziali demo (dopo aver eseguito il seed)</p>
-            <div className="text-xs text-stone-400 space-y-0.5">
-              <div>Admin: <span className="font-mono-num">nico@nicocaffe.it / admin123</span></div>
-              <div>Contabile: <span className="font-mono-num">elena.forte@nicocaffe.it / contabile123</span></div>
-              <div>Agente: <span className="font-mono-num">marco.bianchi@nicocaffe.it / bianchi2026</span></div>
-            </div>
-          </div>
         </Card>
       </div>
     </div>
