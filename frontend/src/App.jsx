@@ -428,6 +428,7 @@ function AppShell({ brandSub, navGroups, activeId, setActive, onLogout, onReload
   );
 }
 
+
 function LoginScreen({ onLogin, loginError }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -1018,6 +1019,18 @@ function AgentiView({ db, setDb }) {
     }
   }
 
+  async function resettaPassword(agente) {
+    const scelta = window.prompt(`Nuova password per ${agente.nome} ${agente.cognome} (min. 6 caratteri, lascia vuoto per generarne una casuale):`);
+    if (scelta === null) return;
+    if (scelta && scelta.length < 6) return alert('La password deve avere almeno 6 caratteri.');
+    try {
+      const res = await api.agenti.resetPassword(agente.id, scelta || undefined);
+      alert(`Password aggiornata. Nuova password: ${res.passwordProvvisoria}`);
+    } catch (e) {
+      alert('Errore: ' + e.message);
+    }
+  }
+
   return (
     <div>
       <div className="mb-4 flex justify-end"><Button onClick={() => setEditing({})}><Plus size={15} /> Nuovo agente</Button></div>
@@ -1042,6 +1055,7 @@ function AgentiView({ db, setDb }) {
           <div className="flex justify-end gap-1">
             <button onClick={() => registraProvvigione(r)} className="p-1.5 text-xs text-stone-400 hover:text-orange-700">Provvigione</button>
             <button onClick={() => setDetail(r)} className="p-1.5 text-stone-400 hover:text-orange-700 text-xs">Scaglioni</button>
+            <button onClick={() => resettaPassword(r)} className="p-1.5 text-stone-400 hover:text-orange-700" title="Reset password"><RotateCcw size={15} /></button>
             <button onClick={() => setEditing(r)} className="p-1.5 text-stone-400 hover:text-orange-700"><Pencil size={15} /></button>
             <button onClick={() => setToDelete(r)} className="p-1.5 text-stone-400 hover:text-red-700"><Trash2 size={15} /></button>
           </div>
@@ -2954,6 +2968,17 @@ function UtentiView({ db, setDb }) {
       alert(e.message);
     }
   }
+  async function resettaPassword(u) {
+    const scelta = window.prompt(`Nuova password per ${u.nome} ${u.cognome} (min. 6 caratteri, lascia vuoto per generarne una casuale):`);
+    if (scelta === null) return;
+    if (scelta && scelta.length < 6) return alert('La password deve avere almeno 6 caratteri.');
+    try {
+      const res = await api.utenti.resetPassword(u.id, scelta || undefined);
+      alert(`Password aggiornata. Nuova password: ${res.passwordProvvisoria}`);
+    } catch (e) {
+      alert('Errore: ' + e.message);
+    }
+  }
   const ruleTones = { Amministratore: 'danger', Contabile: 'info' };
   return (
     <div>
@@ -2966,7 +2991,10 @@ function UtentiView({ db, setDb }) {
         ]}
         rows={db.utenti || []}
         actions={r => (
-          <button onClick={() => setToDelete(r)} className="p-1.5 text-stone-400 hover:text-red-700"><Trash2 size={15} /></button>
+          <div className="flex gap-1 justify-end">
+            <button onClick={() => resettaPassword(r)} className="p-1.5 text-stone-400 hover:text-orange-700" title="Reset password"><RotateCcw size={15} /></button>
+            <button onClick={() => setToDelete(r)} className="p-1.5 text-stone-400 hover:text-red-700"><Trash2 size={15} /></button>
+          </div>
         )}
         empty="Nessun utente."
       />
@@ -3407,8 +3435,10 @@ const AGENT_TITLES = { dashboard: 'Riepilogo', clienti: 'I miei clienti', nuovoO
 function AdminApp({ db, setDb, onLogout, onReload, utente }) {
   const [active, setActive] = useState('dashboard');
   const [eyebrow, title] = ADMIN_TITLES[active] || ['', active];
+  const isAdmin = utente?.ruolo === 'Amministratore';
+  const navGroups = isAdmin ? ADMIN_NAV : ADMIN_NAV.map(g => ({ ...g, items: g.items.filter(i => i.id !== 'utenti') }));
   return (
-    <AppShell brandSub={`Gestionale torrefazione — ${utente?.nome || ''}`} navGroups={ADMIN_NAV} activeId={active} setActive={setActive}
+    <AppShell brandSub={`Gestionale torrefazione — ${utente?.nome || ''}`} navGroups={navGroups} activeId={active} setActive={setActive}
       onLogout={onLogout} onReload={onReload} footerNote="Backend reale — dati SQLite." eyebrow={eyebrow} title={title}>
       {active === 'dashboard'      && <AdminDashboard db={db} goTo={setActive} />}
       {active === 'reportistica'   && <ReportisticaView db={db} />}
@@ -3430,7 +3460,7 @@ function AdminApp({ db, setDb, onLogout, onReload, utente }) {
       {active === 'provvigioni'    && <ProvvigioniView db={db} />}
       {active === 'contabilita'    && <ContabilitaView db={db} setDb={setDb} />}
       {active === 'centriCosto'    && <CentriCostoView db={db} setDb={setDb} />}
-      {active === 'utenti'         && <UtentiView db={db} setDb={setDb} />}
+      {active === 'utenti'         && isAdmin && <UtentiView db={db} setDb={setDb} />}
       {active === 'export'         && <ExportView db={db} />}
     </AppShell>
   );

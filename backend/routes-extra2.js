@@ -33,6 +33,17 @@ module.exports = function (app, db, deps) {
     db.prepare('UPDATE agenti SET attivo = 0 WHERE id = ?').run(req.params.id);
     res.json({ ok: true });
   });
+  app.post('/api/agenti/:id/reset-password', authMiddleware, requireRole('Amministratore'), (req, res) => {
+    const bcrypt = require('bcryptjs');
+    const agente = db.prepare('SELECT id FROM agenti WHERE id = ?').get(req.params.id);
+    if (!agente) return res.status(404).json({ error: 'Agente non trovato' });
+    const scelta = (req.body && req.body.nuovaPassword) || '';
+    if (scelta && scelta.length < 6) return res.status(400).json({ error: 'La password deve avere almeno 6 caratteri' });
+    const passwordProvvisoria = scelta || Math.random().toString(36).slice(2, 10);
+    db.prepare('UPDATE agenti SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(passwordProvvisoria, 10), req.params.id);
+    logAttivita(req.user.id, 'reset_password_agente', { id: req.params.id });
+    res.json({ ok: true, passwordProvvisoria });
+  });
 
   app.post('/api/prodotti', authMiddleware, requireRole('utente', 'Amministratore'), (req, res) => {
     const b = req.body;
@@ -239,6 +250,17 @@ module.exports = function (app, db, deps) {
   app.delete('/api/utenti/:id', authMiddleware, requireRole('Amministratore'), (req, res) => {
     db.prepare('UPDATE utenti SET attivo = 0 WHERE id = ?').run(req.params.id);
     res.json({ ok: true });
+  });
+  app.post('/api/utenti/:id/reset-password', authMiddleware, requireRole('Amministratore'), (req, res) => {
+    const bcrypt = require('bcryptjs');
+    const utente = db.prepare('SELECT id FROM utenti WHERE id = ?').get(req.params.id);
+    if (!utente) return res.status(404).json({ error: 'Utente non trovato' });
+    const scelta = (req.body && req.body.nuovaPassword) || '';
+    if (scelta && scelta.length < 6) return res.status(400).json({ error: 'La password deve avere almeno 6 caratteri' });
+    const passwordProvvisoria = scelta || Math.random().toString(36).slice(2, 10);
+    db.prepare('UPDATE utenti SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(passwordProvvisoria, 10), req.params.id);
+    logAttivita(req.user.id, 'reset_password_utente', { id: req.params.id });
+    res.json({ ok: true, passwordProvvisoria });
   });
 
   app.get('/api/insoluti', authMiddleware, requireRole('utente', 'Amministratore', 'Contabile'), (req, res) => {

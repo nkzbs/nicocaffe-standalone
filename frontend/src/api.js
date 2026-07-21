@@ -52,6 +52,7 @@ export const api = {
     update: (id, b) => request('PUT', '/agenti/' + id, b),
     remove: (id) => request('DELETE', '/agenti/' + id),
     registraProvvigione: (id) => request('POST', '/agenti/' + id + '/registra-provvigione'),
+    resetPassword: (id, nuovaPassword) => request('POST', '/agenti/' + id + '/reset-password', { nuovaPassword }),
   },
   prodotti: {
     list: () => request('GET', '/prodotti'),
@@ -143,6 +144,7 @@ export const api = {
     list: () => request('GET', '/utenti'),
     create: (b) => request('POST', '/utenti', b),
     remove: (id) => request('DELETE', '/utenti/' + id),
+    resetPassword: (id, nuovaPassword) => request('POST', '/utenti/' + id + '/reset-password', { nuovaPassword }),
   },
   insoluti: {
     list: () => request('GET', '/insoluti'),
