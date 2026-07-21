@@ -225,6 +225,8 @@ app.get('/api/contabilita/piano-conti', authMiddleware, (req, res) => {
 
 // ---------- Routes aggiuntive (fatturazione, corrispettivi, acquisti/magazzino) ----------
 require('./routes-fatturazione')(app, db, { authMiddleware, requireRole, uid, logAttivita });
+require('./routes-extra2')(app, db, { authMiddleware, requireRole, uid, logAttivita });
+require('./routes-extra3')(app, db, { authMiddleware, requireRole, uid, logAttivita });
 
 // ---------- Health check ----------
 app.get('/api/health', (req, res) => res.json({ ok: true, db: DB_PATH }));
