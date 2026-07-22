@@ -160,11 +160,11 @@ const creaOrdineTx = db.transaction((ordine) => {
   db.prepare('INSERT INTO ordini (id, data, cliente_id, agente_id, stato) VALUES (?,?,?,?,?)')
     .run(id, ordine.data, ordine.clienteId, ordine.agenteId || null, ordine.stato || 'confermato');
 
-  const insRiga = db.prepare('INSERT INTO ordini_righe (ordine_id, prodotto_id, quantita, prezzo_unitario) VALUES (?,?,?,?)');
+  const insRiga = db.prepare('INSERT INTO ordini_righe (ordine_id, prodotto_id, quantita, prezzo_unitario, aliquota_iva_override) VALUES (?,?,?,?,?)');
   const decScorta = db.prepare('UPDATE prodotti SET scorta = MAX(0, scorta - ?) WHERE id = ?');
 
   ordine.righe.forEach(r => {
-    insRiga.run(id, r.prodottoId, r.quantita, r.prezzoUnitario);
+    insRiga.run(id, r.prodottoId, r.quantita, r.prezzoUnitario, (r.aliquotaIva === '' || r.aliquotaIva === undefined || r.aliquotaIva === null) ? null : Number(r.aliquotaIva));
     decScorta.run(r.quantita, r.prodottoId);
   });
   return id;

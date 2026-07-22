@@ -1941,14 +1941,14 @@ function NuovoDocumentoModal({ db, setDb, tipo, onClose }) {
   const [clienteOccasionale, setClienteOccasionale] = useState('');
   const [agenteId, setAgenteId] = useState('');
   const [contoIncasso, setContoIncasso] = useState('1001');
-  const [righe, setRighe] = useState([{ prodottoId: '', quantita: 1 }]);
+  const [righe, setRighe] = useState([{ prodottoId: '', quantita: 1, aliquotaIva: '' }]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const isFattura = tipo === 'fattura';
   const cliente = db.clienti.find(c => c.id === clienteId);
 
   function updateRiga(idx, patch) { setRighe(rs => rs.map((r, i) => i === idx ? { ...r, ...patch } : r)); }
-  function addRiga() { setRighe(rs => [...rs, { prodottoId: '', quantita: 1 }]); }
+  function addRiga() { setRighe(rs => [...rs, { prodottoId: '', quantita: 1, aliquotaIva: '' }]); }
   function removeRiga(idx) { setRighe(rs => rs.filter((_, i) => i !== idx)); }
 
   const righeValide = righe.filter(r => r.prodottoId && Number(r.quantita) > 0);
@@ -1963,7 +1963,7 @@ function NuovoDocumentoModal({ db, setDb, tipo, onClose }) {
     if (!righeValide.length) return setError('Aggiungi almeno un prodotto.');
     const righeApi = righeValide.map(r => {
       const p = db.prodotti.find(x => x.id === r.prodottoId);
-      return { prodottoId: r.prodottoId, quantita: Number(r.quantita), prezzoUnitario: prezzoUnitarioScontato(p, cliente, Number(r.quantita), db.listini) };
+      return { prodottoId: r.prodottoId, quantita: Number(r.quantita), prezzoUnitario: prezzoUnitarioScontato(p, cliente, Number(r.quantita), db.listini), aliquotaIva: r.aliquotaIva };
     });
     setSaving(true);
     try {
@@ -2043,6 +2043,7 @@ function NuovoDocumentoModal({ db, setDb, tipo, onClose }) {
                     {db.prodotti.map(pr => <option key={pr.id} value={pr.id}>{pr.nome} ({pr.formato}) — {formatEUR(pr.prezzo)}</option>)}
                   </select>
                   <input type="number" min="1" className="w-20 rounded-md border border-stone-300 px-2 py-1.5 text-sm" value={r.quantita} onChange={e => updateRiga(idx, { quantita: e.target.value })} />
+                  <input type="number" min="0" max="100" className="w-16 rounded-md border border-stone-300 px-2 py-1.5 text-sm text-center" placeholder={p ? String(p.aliquotaIva) : 'IVA'} title="Aliquota IVA (vuoto = default prodotto)" value={r.aliquotaIva} onChange={e => updateRiga(idx, { aliquotaIva: e.target.value })} />
                   <span className="w-24 text-right text-sm font-mono-num text-stone-500">{p ? formatEUR(prezzoUnitarioScontato(p, cliente, Number(r.quantita)||1, db.listini) * (Number(r.quantita)||0)) : '—'}</span>
                   <button onClick={() => removeRiga(idx)} className="p-1 text-stone-400 hover:text-red-700"><X size={15} /></button>
                 </div>

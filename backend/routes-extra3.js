@@ -23,6 +23,17 @@ module.exports = function (app, db, deps) {
     );
   `);
 
+  // Migrazione: aliquota IVA modificabile per riga (fattura/corrispettivo/ordine)
+  function ensureColumn(tabella, colonna, tipo) {
+    const cols = db.prepare('PRAGMA table_info(' + tabella + ')').all();
+    if (!cols.some(c => c.name === colonna)) {
+      db.exec('ALTER TABLE ' + tabella + ' ADD COLUMN ' + colonna + ' ' + tipo);
+    }
+  }
+  ensureColumn('ordini_righe', 'aliquota_iva_override', 'REAL');
+  ensureColumn('fatture_righe', 'aliquota_iva_override', 'REAL');
+  ensureColumn('corrispettivi_righe', 'aliquota_iva_override', 'REAL');
+
   // Seed categorie di base, solo se la tabella è vuota (idempotente: non duplica ad ogni avvio)
   const categorieEsistenti = db.prepare('SELECT COUNT(*) as n FROM categorie_prodotto').get().n;
   if (categorieEsistenti === 0) {

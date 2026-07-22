@@ -17,8 +17,9 @@ module.exports = function (app, db, deps) {
     let imponibile = 0, iva = 0;
     righe.forEach(r => {
       const riga = r.quantita * r.prezzo_unitario;
+      const aliquota = (r.aliquota_iva_override !== null && r.aliquota_iva_override !== undefined) ? r.aliquota_iva_override : (prodottiMap.get(r.prodotto_id) || 22);
       imponibile += riga;
-      iva += riga * ((prodottiMap.get(r.prodotto_id) || 22) / 100);
+      iva += riga * (aliquota / 100);
     });
     imponibile = Math.round(imponibile * 100) / 100;
     iva = Math.round(iva * 100) / 100;
@@ -32,8 +33,8 @@ module.exports = function (app, db, deps) {
     db.prepare("INSERT INTO fatture (id, numero, data, cliente_id, agente_id, ordine_id, imponibile, iva, totale, scadenza, stato) VALUES (?,?,?,?,?,?,?,?,?,?,'emessa')")
       .run(id, numero, oggi, ordine.cliente_id, ordine.agente_id, ordineId, imponibile, iva, totale, scadenza);
 
-    const insRiga = db.prepare('INSERT INTO fatture_righe (fattura_id, prodotto_id, quantita, prezzo_unitario) VALUES (?,?,?,?)');
-    righe.forEach(r => insRiga.run(id, r.prodotto_id, r.quantita, r.prezzo_unitario));
+    const insRiga = db.prepare('INSERT INTO fatture_righe (fattura_id, prodotto_id, quantita, prezzo_unitario, aliquota_iva_override) VALUES (?,?,?,?,?)');
+    righe.forEach(r => insRiga.run(id, r.prodotto_id, r.quantita, r.prezzo_unitario, r.aliquota_iva_override));
 
     const movId = uid('MV');
     db.prepare('INSERT INTO movimenti (id, data, descrizione, riferimento) VALUES (?,?,?,?)')
@@ -84,22 +85,32 @@ module.exports = function (app, db, deps) {
 
   const generaCorrispettivoTx = db.transaction((body) => {
     const data = body.data, clienteId = body.clienteId, clienteOccasionale = body.clienteOccasionale, righe = body.righe, contoIncasso = body.contoIncasso;
-    let totale = 0;
-    righe.forEach(r => { totale += r.quantita * r.prezzoUnitario; });
-    totale = Math.round(totale * 100) / 100;
+    const prodottiMap = new Map(db.prepare('SELECT id, aliquota_iva FROM prodotti').all().map(p => [p.id, p.aliquota_iva]));
+    let imponibile = 0, iva = 0;
+    righe.forEach(r => {
+      const rigaImp = r.quantita * r.prezzoUnitario;
+      const aliquota = (r.aliquotaIva === '' || r.aliquotaIva === undefined || r.aliquotaIva === null) ? (prodottiMap.get(r.prodottoId) || 22) : Number(r.aliquotaIva);
+      imponibile += rigaImp;
+      iva += rigaImp * (aliquota / 100);
+    });
+    imponibile = Math.round(imponibile * 100) / 100;
+    iva = Math.round(iva * 100) / 100;
+    const totale = Math.round((imponibile + iva) * 100) / 100;
 
     const id = uid('CO');
     db.prepare('INSERT INTO corrispettivi (id, data, cliente_id, cliente_occasionale, conto_incasso, totale) VALUES (?,?,?,?,?,?)')
       .run(id, data, clienteId || null, clienteOccasionale || null, contoIncasso, totale);
-    const insRiga = db.prepare('INSERT INTO corrispettivi_righe (corrispettivo_id, prodotto_id, quantita, prezzo_unitario) VALUES (?,?,?,?)');
+    const insRiga = db.prepare('INSERT INTO corrispettivi_righe (corrispettivo_id, prodotto_id, quantita, prezzo_unitario, aliquota_iva_override) VALUES (?,?,?,?,?)');
     const decScorta = db.prepare('UPDATE prodotti SET scorta = MAX(0, scorta - ?) WHERE id = ?');
-    righe.forEach(r => { insRiga.run(id, r.prodottoId, r.quantita, r.prezzoUnitario); decScorta.run(r.quantita, r.prodottoId); });
+    righe.forEach(r => {
+      const override = (r.aliquotaIva === '' || r.aliquotaIva === undefined || r.aliquotaIva === null) ? null : Number(r.aliquotaIva);
+      insRiga.run(id, r.prodottoId, r.quantita, r.prezzoUnitario, override);
+      decScorta.run(r.quantita, r.prodottoId);
+    });
 
     const movId = uid('MV');
     db.prepare('INSERT INTO movimenti (id, data, descrizione, riferimento) VALUES (?,?,?,?)')
       .run(movId, data, 'Corrispettivo', id);
-    const imponibile = Math.round((totale / 1.22) * 100) / 100;
-    const iva = Math.round((totale - imponibile) * 100) / 100;
     const insMovRiga = db.prepare('INSERT INTO movimenti_righe (movimento_id, conto, dare, avere) VALUES (?,?,?,?)');
     insMovRiga.run(movId, contoIncasso, totale, 0);
     insMovRiga.run(movId, '4100', 0, imponibile);
