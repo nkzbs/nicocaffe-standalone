@@ -906,6 +906,7 @@ function ClientiView({ db, setDb }) {
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [dettaglioEsposizione, setDettaglioEsposizione] = useState(null);
 
   const fields = [
     { name: 'ragioneSociale', label: 'Ragione sociale', full: true },
@@ -966,6 +967,7 @@ function ClientiView({ db, setDb }) {
         rows={db.clienti}
         actions={r => (
           <div className="flex justify-end gap-1">
+            <button onClick={() => setDettaglioEsposizione(r)} className="p-1.5 text-stone-400 hover:text-orange-700" title="Fatture aperte"><Receipt size={15} /></button>
             <button onClick={() => setEditing(r)} className="p-1.5 text-stone-400 hover:text-orange-700"><Pencil size={15} /></button>
             <button onClick={() => setToDelete(r)} className="p-1.5 text-stone-400 hover:text-red-700"><Trash2 size={15} /></button>
           </div>
@@ -973,7 +975,55 @@ function ClientiView({ db, setDb }) {
       />
       {editing && <FormModal title={editing.id ? 'Modifica cliente' : 'Nuovo cliente'} fields={fields} initial={editing} onClose={() => setEditing(null)} onSave={handleSave} saving={saving} />}
       {toDelete && <ConfirmDialog text={`Disattivare "${toDelete.ragioneSociale}"?`} onClose={() => setToDelete(null)} onConfirm={() => handleDelete(toDelete)} />}
+      {dettaglioEsposizione && <EsposizioneClienteModal cliente={dettaglioEsposizione} db={db} onClose={() => setDettaglioEsposizione(null)} />}
     </div>
+  );
+}
+
+function EsposizioneClienteModal({ cliente, db, onClose }) {
+  const oggi = todayISO();
+  const fattureAperte = db.fatture.filter(f => f.clienteId === cliente.id && f.stato !== 'pagata').map(f => ({ ...f, residuo: residuoFattura(db, f) })).sort((a, b) => a.scadenza.localeCompare(b.scadenza));
+  const ordiniNonFatturati = db.ordini.filter(o => o.clienteId === cliente.id && o.stato === 'confermato').map(o => ({ ...o, totale: o.righe.reduce((s, r) => s + r.quantita * r.prezzoUnitario, 0) }));
+  const totaleFatture = fattureAperte.reduce((s, f) => s + f.residuo, 0);
+  const totaleOrdini = ordiniNonFatturati.reduce((s, o) => s + o.totale, 0);
+  return (
+    <Modal title={'Esposizione - ' + cliente.ragioneSociale} onClose={onClose} wide>
+      <div className="space-y-5">
+        <div className="flex items-center justify-between border-b border-stone-200 pb-3">
+          <span className="text-sm text-stone-500">Esposizione totale</span>
+          <span className="font-display text-xl text-stone-900">{formatEUR(totaleFatture + totaleOrdini)} <span className="text-sm text-stone-400 font-normal">/ {formatEUR(cliente.fido)} fido</span></span>
+        </div>
+        <div>
+          <p className="text-sm font-medium text-stone-600 mb-2">Fatture aperte</p>
+          <DataTable
+            columns={[
+              { key: 'numero', label: 'Numero', mono: true },
+              { key: 'data', label: 'Data', render: r => formatDate(r.data) },
+              { key: 'scadenza', label: 'Scadenza', render: r => formatDate(r.scadenza) },
+              { key: 'residuo', label: 'Residuo', align: 'right', mono: true, render: r => formatEUR(r.residuo) },
+            ]}
+            rows={fattureAperte}
+            empty="Nessuna fattura aperta."
+          />
+        </div>
+        {ordiniNonFatturati.length > 0 && (
+        <div>
+          <p className="text-sm font-medium text-stone-600 mb-2">Ordini confermati non ancora fatturati</p>
+          <DataTable
+            columns={[
+              { key: 'id', label: 'Ordine', mono: true },
+              { key: 'data', label: 'Data', render: r => formatDate(r.data) },
+              { key: 'totale', label: 'Imponibile', align: 'right', mono: true, render: r => formatEUR(r.totale) },
+            ]}
+            rows={ordiniNonFatturati}
+          />
+        </div>
+        )}
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onClose}>Chiudi</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -2103,6 +2153,17 @@ function ContabilitaView({ db, setDb }) {
   const verifica = useMemo(() => calcolaBilancioVerifica(db.movimenti), [db.movimenti]);
   const economico = useMemo(() => calcolaContoEconomico(db.movimenti), [db.movimenti]);
   const patrimoniale = useMemo(() => calcolaStatoPatrimoniale(db.movimenti), [db.movimenti]);
+  const progressivoMensile = useMemo(() => {
+    const map = {};
+    const cumuloPerMese = {};
+    db.movimenti.forEach(m => {
+      const mese = m.data.slice(0, 7);
+      const netto = m.righe.reduce((s, x) => s + (x.dare || 0) - (x.avere || 0), 0);
+      cumuloPerMese[mese] = (cumuloPerMese[mese] || 0) + netto;
+      map[m.id] = Math.round(cumuloPerMese[mese] * 100) / 100;
+    });
+    return map;
+  }, [db.movimenti]);
 
   return (
     <div>
@@ -2133,6 +2194,7 @@ function ContabilitaView({ db, setDb }) {
           { key: 'riferimento', label: 'Riferimento' },
           { key: 'dare', label: 'Dare', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.dare, 0)) },
           { key: 'avere', label: 'Avere', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.avere, 0)) },
+          { key: 'progressivo', label: 'Progressivo mese', align: 'right', mono: true, render: r => formatEUR(progressivoMensile[r.id] ?? 0) },
         ]} rows={[...db.movimenti].sort((a, b) => b.data.localeCompare(a.data))} empty="Nessuna registrazione contabile." />
       )}
 
