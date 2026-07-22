@@ -72,6 +72,20 @@ function residuoFattura(db, fattura) {
   return Math.round((fattura.totale - note.reduce((s, n) => s + n.importo, 0)) * 100) / 100;
 }
 
+function calcolaTotaleOrdineConIva(ordine, db) {
+  let imponibile = 0, iva = 0;
+  ordine.righe.forEach(r => {
+    const p = db.prodotti.find(x => x.id === r.prodottoId);
+    const aliquota = p ? p.aliquotaIva : 22;
+    const imp = r.quantita * r.prezzoUnitario;
+    imponibile += imp;
+    iva += imp * aliquota / 100;
+  });
+  imponibile = Math.round(imponibile * 100) / 100;
+  iva = Math.round(iva * 100) / 100;
+  return { imponibile, iva, totale: Math.round((imponibile + iva) * 100) / 100 };
+}
+
 function esposizioneCliente(db, clienteId) {
   const fattureAperte = db.fatture.filter(f => f.clienteId === clienteId && f.stato !== 'pagata')
     .reduce((s, f) => s + residuoFattura(db, f), 0);
@@ -1121,7 +1135,7 @@ function ProdottiView({ db, setDb }) {
 
   const fields = [
     { name: 'nome', label: 'Nome prodotto', full: true },
-    { name: 'categoria', label: 'Categoria', type: 'select', options: ['Miscela', 'Monorigine', 'Decaffeinato', 'Macinato', 'Capsule', 'Cialde'].map(v => ({ value: v, label: v })) },
+    { name: 'categoria', label: 'Categoria', type: 'select', options: (db.categorieProdotto || []).map(c => ({ value: c.nome, label: c.nome })) },
     { name: 'formato', label: 'Formato' },
     { name: 'unita', label: 'Unità', type: 'select', options: [{ value: 'kg', label: 'kg' }, { value: 'conf', label: 'confezioni' }] },
     { name: 'prezzo', label: 'Prezzo listino (€)', type: 'number' },
@@ -1131,6 +1145,18 @@ function ProdottiView({ db, setDb }) {
     { name: 'scorta', label: 'Scorta attuale', type: 'number' },
     { name: 'scortaMinima', label: 'Scorta minima', type: 'number' },
   ];
+
+  async function nuovaCategoria() {
+    const nome = window.prompt('Nome nuova categoria prodotto:');
+    if (!nome || !nome.trim()) return;
+    try {
+      await api.categorieProdotto.create(nome.trim());
+      const categorieProdotto = await api.categorieProdotto.list();
+      setDb(d => ({ ...d, categorieProdotto }));
+    } catch (e) {
+      alert('Errore: ' + e.message);
+    }
+  }
 
   async function handleSave(values) {
     const num = { prezzo: parseFloat(values.prezzo)||0, costo: parseFloat(values.costo)||0, scorta: parseFloat(values.scorta)||0, scortaMinima: parseFloat(values.scortaMinima)||0, aliquotaIva: parseFloat(values.aliquotaIva)||22, rendimentoTostatura: parseFloat(values.rendimentoTostatura)||84 };
@@ -1185,6 +1211,7 @@ function ProdottiView({ db, setDb }) {
             <Button size="sm" variant="ghost" onClick={() => setBulkIva(true)}>Modifica IVA multipla</Button>
           </>
         )}
+        <Button variant="ghost" onClick={nuovaCategoria}><Plus size={15} /> Nuova categoria</Button>
         <Button onClick={() => setEditing({})}><Plus size={15} /> Nuovo prodotto</Button>
       </div>
       <DataTable
@@ -1566,6 +1593,7 @@ function OrdiniView({ db, setDb }) {
           { key: 'agente', label: 'Agente', render: r => { const a = db.agenti.find(x => x.id === r.agenteId); return a ? `${a.nome} ${a.cognome}` : '—'; } },
           { key: 'righe', label: 'Articoli', align: 'right', render: r => r.righe.length },
           { key: 'totale', label: 'Totale imponibile', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.quantita * x.prezzoUnitario, 0)) },
+          { key: 'totaleIva', label: 'Totale (IVA incl.)', align: 'right', mono: true, render: r => formatEUR(calcolaTotaleOrdineConIva(r, db).totale) },
           { key: 'stato', label: 'Stato', render: r => statoOrdineBadge(r.stato) },
         ]}
         rows={rows}
@@ -1700,6 +1728,7 @@ function FatturazioneView({ db, setDb }) {
               { key: 'data', label: 'Data', render: r => formatDate(r.data) },
               { key: 'cliente', label: 'Cliente', render: r => db.clienti.find(c => c.id === r.clienteId)?.ragioneSociale },
               { key: 'totale', label: 'Imponibile', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.quantita * x.prezzoUnitario, 0)) },
+              { key: 'totaleIva', label: 'Totale (IVA incl.)', align: 'right', mono: true, render: r => formatEUR(calcolaTotaleOrdineConIva(r, db).totale) },
             ]}
             rows={ordiniDaFatturare}
             actions={r => <Button size="sm" onClick={() => generaFattura(r)} disabled={busy}>Genera fattura</Button>}
@@ -3072,6 +3101,7 @@ function AgentDashboard({ agente, clienti, ordini, db }) {
               { key: 'data', label: 'Data', render: r => formatDate(r.data) },
               { key: 'cliente', label: 'Cliente', render: r => db.clienti.find(c => c.id === r.clienteId)?.ragioneSociale },
               { key: 'totale', label: 'Totale', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.quantita * x.prezzoUnitario, 0)) },
+              { key: 'totaleIva', label: 'Tot. IVA incl.', align: 'right', mono: true, render: r => formatEUR(calcolaTotaleOrdineConIva(r, db).totale) },
               { key: 'stato', label: '', render: r => statoOrdineBadge(r.stato) },
             ]}
             rows={[...ordini].sort((a, b) => b.data.localeCompare(a.data)).slice(0, 5)}
@@ -3260,6 +3290,7 @@ function AgentOrdiniView({ db, ordini }) {
           { key: 'cliente', label: 'Cliente', render: r => db.clienti.find(c => c.id === r.clienteId)?.ragioneSociale },
           { key: 'articoli', label: 'Articoli', align: 'right', render: r => r.righe.length },
           { key: 'totale', label: 'Totale', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.quantita * x.prezzoUnitario, 0)) },
+          { key: 'totaleIva', label: 'Tot. IVA incl.', align: 'right', mono: true, render: r => formatEUR(calcolaTotaleOrdineConIva(r, db).totale) },
           { key: 'stato', label: 'Stato', render: r => statoOrdineBadge(r.stato) },
         ]}
         rows={[...ordini].sort((a, b) => b.data.localeCompare(a.data))}
@@ -3507,14 +3538,14 @@ export default function App() {
     const [
       clienti, agenti, prodotti, ordini, fatture, movimenti, pianoConti, magazzinoVerde, lotti,
       fornitori, listini, corrispettivi, ordiniAcquisto, attrezzature, interventi, furgoni, costiMezzo,
-      visite, comunicazioni, giriConsegna,
+      visite, comunicazioni, giriConsegna, categorieProdotto,
     ] = await Promise.all([
       safeList(() => api.clienti.list()), safeList(() => api.agenti.list()), safeList(() => api.prodotti.list()), safeList(() => api.ordini.list()),
       safeList(() => api.fatture.list()), safeList(() => api.contabilita.movimenti()), safeList(() => api.contabilita.pianoConti()),
       safeList(() => api.magazzinoVerde.get(), { kgDisponibili: 0 }), safeList(() => api.lotti.list()),
       safeList(() => api.fornitori.list()), safeList(() => api.listini.list()), safeList(() => api.corrispettivi.list()), safeList(() => api.ordiniAcquisto.list()),
       safeList(() => api.attrezzature.list()), safeList(() => api.interventi.list()), safeList(() => api.furgoni.list()), safeList(() => api.costiMezzo.list()),
-      safeList(() => api.visite.list()), safeList(() => api.comunicazioni.list()), safeList(() => api.giriConsegna.list()),
+      safeList(() => api.visite.list()), safeList(() => api.comunicazioni.list()), safeList(() => api.giriConsegna.list()), safeList(() => api.categorieProdotto.list()),
     ]);
     const ammortamentiMesiRes = await safeList(() => api.ammortamenti.list());
     const ammortamentiMesi = ammortamentiMesiRes.map(r => r.mese);
@@ -3530,7 +3561,7 @@ export default function App() {
       lotti, fornitori, listini, corrispettivi, ordiniAcquisto,
       attrezzature, interventi, furgoni, costiMezzo, visite, comunicazioni, giriConsegna,
       insoluti, noteCredito, utenti,
-      ammortamentiMesi,
+      ammortamentiMesi, categorieProdotto,
     });
   }
 

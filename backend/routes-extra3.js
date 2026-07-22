@@ -17,7 +17,36 @@ module.exports = function (app, db, deps) {
       canale TEXT NOT NULL,
       note TEXT
     );
+    CREATE TABLE IF NOT EXISTS categorie_prodotto (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL UNIQUE
+    );
   `);
+
+  // Seed categorie di base, solo se la tabella è vuota (idempotente: non duplica ad ogni avvio)
+  const categorieEsistenti = db.prepare('SELECT COUNT(*) as n FROM categorie_prodotto').get().n;
+  if (categorieEsistenti === 0) {
+    const seedCategorie = db.prepare('INSERT INTO categorie_prodotto (nome) VALUES (?)');
+    ['Miscela', 'Monorigine', 'Decaffeinato', 'Macinato', 'Capsule', 'Cialde', 'Ginseng', 'Orzo'].forEach(nome => seedCategorie.run(nome));
+  }
+
+  // ============================================================
+  // CATEGORIE PRODOTTO
+  // ============================================================
+  app.get('/api/categorie-prodotto', authMiddleware, (req, res) => {
+    res.json(db.prepare('SELECT * FROM categorie_prodotto ORDER BY nome').all());
+  });
+  app.post('/api/categorie-prodotto', authMiddleware, requireRole('utente', 'Amministratore'), (req, res) => {
+    const nome = (req.body.nome || '').trim();
+    if (!nome) return res.status(400).json({ error: 'Nome categoria richiesto' });
+    try {
+      const info = db.prepare('INSERT INTO categorie_prodotto (nome) VALUES (?)').run(nome);
+      res.status(201).json({ id: info.lastInsertRowid, nome });
+    } catch (e) {
+      if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Categoria già esistente' });
+      throw e;
+    }
+  });
 
   app.get('/api/giri-consegna', authMiddleware, (req, res) => {
     res.json(db.prepare('SELECT * FROM giri_consegna ORDER BY data DESC').all());

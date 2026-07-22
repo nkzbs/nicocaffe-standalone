@@ -60,6 +60,10 @@ export const api = {
     update: (id, b) => request('PUT', '/prodotti/' + id, b),
     remove: (id) => request('DELETE', '/prodotti/' + id),
   },
+  categorieProdotto: {
+    list: () => request('GET', '/categorie-prodotto'),
+    create: (nome) => request('POST', '/categorie-prodotto', { nome }),
+  },
   ordini: {
     list: () => request('GET', '/ordini'),
     create: (b) => request('POST', '/ordini', b),
