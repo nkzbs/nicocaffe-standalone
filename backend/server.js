@@ -256,6 +256,7 @@ require('./routes-extra2')(app, db, { authMiddleware, requireRole, uid, logAttiv
 require('./routes-extra3')(app, db, { authMiddleware, requireRole, uid, logAttivita });
 require('./routes-extra4')(app, db, { authMiddleware, requireRole, uid, logAttivita });
 require('./routes-extra5')(app, db, { authMiddleware, requireRole, uid, logAttivita });
+require('./routes-extra6')(app, db, { authMiddleware, requireRole, uid, logAttivita });
 
 // ---------- Health check ----------
 app.get('/api/health', (req, res) => res.json({ ok: true, db: DB_PATH }));

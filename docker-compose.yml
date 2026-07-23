@@ -6,9 +6,11 @@ services:
       - "4100:80"
     volumes:
       - nicocaffe_data:/data
+      - nicocaffe_backups:/backups
     environment:
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
     restart: unless-stopped
 
 volumes:
   nicocaffe_data:
+  nicocaffe_backups:
