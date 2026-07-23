@@ -98,11 +98,17 @@ function calcolaTotaleOrdineConIva(ordine, db) {
   return { imponibile, iva, totale: Math.round((imponibile + iva) * 100) / 100 };
 }
 
+function residuoOrdine(db, ordine) {
+  const totale = calcolaTotaleOrdineConIva(ordine, db).totale;
+  const pagato = (db.ordiniPagamenti || []).filter(p => p.ordineId === ordine.id && !p.stornato).reduce((s, p) => s + p.importo, 0);
+  return Math.round((totale - pagato) * 100) / 100;
+}
+
 function esposizioneCliente(db, clienteId) {
   const fattureAperte = db.fatture.filter(f => f.clienteId === clienteId && f.stato !== 'pagata')
     .reduce((s, f) => s + residuoFattura(db, f), 0);
   const ordiniNonFatturati = db.ordini.filter(o => o.clienteId === clienteId && o.stato === 'confermato')
-    .reduce((s, o) => s + o.righe.reduce((s2, r) => s2 + r.quantita * r.prezzoUnitario, 0), 0);
+    .reduce((s, o) => s + residuoOrdine(db, o), 0);
   return Math.round((fattureAperte + ordiniNonFatturati) * 100) / 100;
 }
 
@@ -997,9 +1003,13 @@ function ClientiView({ db, setDb }) {
 function EsposizioneClienteModal({ cliente, db, onClose }) {
   const oggi = todayISO();
   const fattureAperte = db.fatture.filter(f => f.clienteId === cliente.id && f.stato !== 'pagata').map(f => ({ ...f, residuo: residuoFattura(db, f) })).sort((a, b) => a.scadenza.localeCompare(b.scadenza));
-  const ordiniNonFatturati = db.ordini.filter(o => o.clienteId === cliente.id && o.stato === 'confermato').map(o => ({ ...o, totale: o.righe.reduce((s, r) => s + r.quantita * r.prezzoUnitario, 0) }));
+  const ordiniNonFatturati = db.ordini.filter(o => o.clienteId === cliente.id && o.stato === 'confermato').map(o => {
+    const totale = calcolaTotaleOrdineConIva(o, db).totale;
+    const pagato = (db.ordiniPagamenti || []).filter(p => p.ordineId === o.id && !p.stornato).reduce((s, p) => s + p.importo, 0);
+    return { ...o, totale, pagato: Math.round(pagato * 100) / 100, residuo: residuoOrdine(db, o) };
+  });
   const totaleFatture = fattureAperte.reduce((s, f) => s + f.residuo, 0);
-  const totaleOrdini = ordiniNonFatturati.reduce((s, o) => s + o.totale, 0);
+  const totaleOrdini = ordiniNonFatturati.reduce((s, o) => s + o.residuo, 0);
   return (
     <Modal title={'Esposizione - ' + cliente.ragioneSociale} onClose={onClose} wide>
       <div className="space-y-5">
@@ -1027,7 +1037,9 @@ function EsposizioneClienteModal({ cliente, db, onClose }) {
             columns={[
               { key: 'id', label: 'Ordine', mono: true },
               { key: 'data', label: 'Data', render: r => formatDate(r.data) },
-              { key: 'totale', label: 'Imponibile', align: 'right', mono: true, render: r => formatEUR(r.totale) },
+              { key: 'totale', label: 'Totale (IVA incl.)', align: 'right', mono: true, render: r => formatEUR(r.totale) },
+              { key: 'pagato', label: 'Già pagato', align: 'right', mono: true, render: r => r.pagato > 0 ? formatEUR(r.pagato) : '—' },
+              { key: 'residuo', label: 'Residuo', align: 'right', mono: true, render: r => formatEUR(r.residuo) },
             ]}
             rows={ordiniNonFatturati}
           />
@@ -1045,6 +1057,7 @@ function AgentiView({ db, setDb }) {
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [versamentiTarget, setVersamentiTarget] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const fields = [
@@ -1133,6 +1146,7 @@ function AgentiView({ db, setDb }) {
           <div className="flex justify-end gap-1">
             <button onClick={() => registraProvvigione(r)} className="p-1.5 text-xs text-stone-400 hover:text-orange-700">Provvigione</button>
             <button onClick={() => setDetail(r)} className="p-1.5 text-stone-400 hover:text-orange-700 text-xs">Scaglioni</button>
+            <button onClick={() => setVersamentiTarget(r)} className="p-1.5 text-stone-400 hover:text-orange-700 text-xs">Versamenti</button>
             <button onClick={() => resettaPassword(r)} className="p-1.5 text-stone-400 hover:text-orange-700" title="Reset password"><RotateCcw size={15} /></button>
             <button onClick={() => setEditing(r)} className="p-1.5 text-stone-400 hover:text-orange-700"><Pencil size={15} /></button>
             <button onClick={() => setToDelete(r)} className="p-1.5 text-stone-400 hover:text-red-700"><Trash2 size={15} /></button>
@@ -1142,8 +1156,136 @@ function AgentiView({ db, setDb }) {
       {editing && <FormModal title={editing.id ? 'Modifica agente' : 'Nuovo agente'} fields={fields} initial={editing} onClose={() => setEditing(null)} onSave={handleSave} saving={saving} />}
       {toDelete && <ConfirmDialog text={`Disattivare ${toDelete.nome} ${toDelete.cognome}?`} onClose={() => setToDelete(null)} onConfirm={() => handleDelete(toDelete)} />}
       {detail && <ScaglioniModal agente={detail} setDb={setDb} onClose={() => setDetail(null)} />}
+      {versamentiTarget && <VersamentiModal agente={versamentiTarget} onClose={() => setVersamentiTarget(null)} />}
     </div>
   );
+}
+
+function VersamentiModal({ agente, onClose }) {
+  const [versamenti, setVersamenti] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [manuale, setManuale] = useState(false);
+  const [periodoDa, setPeriodoDa] = useState('');
+  const [periodoA, setPeriodoA] = useState('');
+  const [note, setNote] = useState('');
+  const [pdfHtml, setPdfHtml] = useState(null);
+
+  async function ricarica() {
+    setLoading(true);
+    try {
+      const v = await api.versamenti.list(agente.id);
+      setVersamenti(v);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { ricarica(); }, [agente.id]);
+
+  async function generaSettimanale() {
+    setError(''); setBusy(true);
+    try {
+      await api.versamenti.genera(agente.id, { tipo: 'settimanale' });
+      await ricarica();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function generaManuale() {
+    setError('');
+    if (!periodoDa || !periodoA) return setError('Seleziona periodo da e a.');
+    setBusy(true);
+    try {
+      await api.versamenti.genera(agente.id, { tipo: 'manuale', periodoDa, periodoA, note });
+      setManuale(false); setPeriodoDa(''); setPeriodoA(''); setNote('');
+      await ricarica();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function stampaRicevuta(v) {
+    setPdfHtml(buildDistintaVersamentoHTML(v, agente));
+  }
+
+  return (
+    <Modal title={`Distinte di versamento — ${agente.nome} ${agente.cognome}`} onClose={onClose} wide>
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={generaSettimanale} disabled={busy}>{busy ? 'Generazione...' : 'Genera distinta settimanale (ultimi 7gg)'}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setManuale(m => !m)}>{manuale ? 'Annulla' : 'Distinta manuale (periodo custom)'}</Button>
+        </div>
+        {manuale && (
+          <div className="grid grid-cols-2 gap-3 p-3 bg-amber-100 rounded-md">
+            <div>
+              <label className="block text-xs font-medium text-stone-500 mb-1">Da</label>
+              <input type="date" className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm" value={periodoDa} onChange={e => setPeriodoDa(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-500 mb-1">A</label>
+              <input type="date" className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm" value={periodoA} onChange={e => setPeriodoA(e.target.value)} />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-stone-500 mb-1">Note</label>
+              <input className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm" value={note} onChange={e => setNote(e.target.value)} />
+            </div>
+            <div className="col-span-2 flex justify-end">
+              <Button size="sm" onClick={generaManuale} disabled={busy}>{busy ? 'Generazione...' : 'Genera'}</Button>
+            </div>
+          </div>
+        )}
+        {error && <p className="text-sm text-red-700">{error}</p>}
+        <p className="text-xs text-stone-400">Le distinte includono gli incassi in Contanti/Assegno registrati sugli ordini di questo agente nel periodo selezionato, non ancora inclusi in un'altra distinta.</p>
+        <DataTable
+          columns={[
+            { key: 'dataGenerazione', label: 'Generata il', render: r => formatDate(r.dataGenerazione) },
+            { key: 'periodo', label: 'Periodo', render: r => `${formatDate(r.periodoDa)} — ${formatDate(r.periodoA)}` },
+            { key: 'tipo', label: 'Tipo', render: r => <Badge tone={r.tipo === 'manuale' ? 'info' : 'neutral'}>{r.tipo}</Badge> },
+            { key: 'incassi', label: 'N. incassi', align: 'right', render: r => r.dettaglio.length },
+            { key: 'importoTotale', label: 'Importo', align: 'right', mono: true, render: r => formatEUR(r.importoTotale) },
+          ]}
+          rows={versamenti || []}
+          actions={r => <Button size="sm" variant="ghost" onClick={() => stampaRicevuta(r)}>Ricevuta</Button>}
+          empty={loading ? 'Caricamento...' : 'Nessuna distinta generata.'}
+        />
+        <div className="flex justify-end pt-2">
+          <Button variant="ghost" onClick={onClose}>Chiudi</Button>
+        </div>
+      </div>
+      {pdfHtml && <PDFModal html={pdfHtml} onClose={() => setPdfHtml(null)} narrow={false} />}
+    </Modal>
+  );
+}
+
+function buildDistintaVersamentoHTML(distinta, agente) {
+  const rigaHTML = (d) => `<tr><td>${formatDate(d.data)}</td><td>${d.ordineId}</td><td>${d.clienteRagioneSociale}</td><td>${d.modalita}</td><td class="right">€ ${d.importo.toFixed(2)}</td></tr>`;
+  return `
+  <div class="row" style="margin-bottom:24px">
+    <div><div class="logo">☕ Nico Caffè</div><div class="sub">Torrefazione artigianale<br>Via del Caffè 1 — 80100 Napoli</div></div>
+    <div style="text-align:right"><h2>DISTINTA DI VERSAMENTO</h2><div class="badge">${distinta.id}</div><br><div class="label">Generata il</div><div class="value">${new Date(distinta.dataGenerazione).toLocaleDateString('it-IT')}</div></div>
+  </div>
+  <hr class="divider">
+  <div class="row" style="margin-bottom:20px">
+    <div><div class="label">Agente</div><div class="value" style="font-weight:600">${agente.nome} ${agente.cognome}</div></div>
+    <div><div class="label">Periodo</div><div class="value">${new Date(distinta.periodoDa).toLocaleDateString('it-IT')} — ${new Date(distinta.periodoA).toLocaleDateString('it-IT')}</div></div>
+  </div>
+  <table><thead><tr><th>Data</th><th>Ordine</th><th>Cliente</th><th>Modalità</th><th class="right">Importo</th></tr></thead>
+  <tbody>${distinta.dettaglio.map(rigaHTML).join('')}</tbody></table>
+  <hr class="thin" style="margin-top:24px">
+  <table style="width:260px;margin-left:auto;margin-top:0"><tbody>
+    <tr class="total-row"><td>Totale da versare</td><td class="right">€ ${distinta.importoTotale.toFixed(2)}</td></tr>
+  </tbody></table>
+  ${distinta.note ? `<div style="margin-top:16px"><div class="label">Note</div><div class="value">${distinta.note}</div></div>` : ''}
+  <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e7e5e4;font-size:11px;color:#78716c">Firma agente: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Firma amministrazione: ______________________</div>`;
 }
 
 function ScaglioniModal({ agente, setDb, onClose }) {
@@ -1646,6 +1788,7 @@ function OrdiniView({ db, setDb }) {
   const [showNew, setShowNew] = useState(false);
   const [pdfHtml, setPdfHtml] = useState(null);
   const [pdfNarrow, setPdfNarrow] = useState(false);
+  const [pagamentoTarget, setPagamentoTarget] = useState(null);
   const rows = [...db.ordini].sort((a, b) => b.data.localeCompare(a.data));
   return (
     <div>
@@ -1658,6 +1801,7 @@ function OrdiniView({ db, setDb }) {
           { key: 'righe', label: 'Articoli', align: 'right', render: r => r.righe.length },
           { key: 'totale', label: 'Totale imponibile', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.quantita * x.prezzoUnitario, 0)) },
           { key: 'totaleIva', label: 'Totale (IVA incl.)', align: 'right', mono: true, render: r => formatEUR(calcolaTotaleOrdineConIva(r, db).totale) },
+          { key: 'residuo', label: 'Residuo da incassare', align: 'right', mono: true, render: r => { const res = residuoOrdine(db, r); return res > 0.01 ? <span className="text-red-700">{formatEUR(res)}</span> : <span className="text-emerald-700">Saldato</span>; } },
           { key: 'stato', label: 'Stato', render: r => (
             <div className="flex items-center gap-1.5">
               {statoOrdineBadge(r.stato)}
@@ -1668,6 +1812,7 @@ function OrdiniView({ db, setDb }) {
         rows={rows}
         actions={r => (
           <div className="flex gap-1">
+            <Button size="sm" variant="ghost" onClick={() => setPagamentoTarget(r)}>Pagamento</Button>
             <Button size="sm" variant="ghost" onClick={() => { setPdfHtml(buildOrdineHTML(r, db)); setPdfNarrow(false); }}>PDF</Button>
             <Button size="sm" variant="ghost" onClick={() => { setPdfHtml(buildBollaHTML(r, db)); setPdfNarrow(true); }}>Bolla 80mm</Button>
           </div>
@@ -1676,7 +1821,110 @@ function OrdiniView({ db, setDb }) {
       />
       {showNew && <NewOrderModal db={db} setDb={setDb} clienteOptions={db.clienti} onClose={() => setShowNew(false)} />}
       {pdfHtml && <PDFModal html={pdfHtml} onClose={() => setPdfHtml(null)} narrow={pdfNarrow} />}
+      {pagamentoTarget && <PagamentoOrdineModal ordine={pagamentoTarget} db={db} setDb={setDb} onClose={() => setPagamentoTarget(null)} />}
     </div>
+  );
+}
+
+function PagamentoOrdineModal({ ordine, db, setDb, onClose }) {
+  const [pagamenti, setPagamenti] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [importo, setImporto] = useState('');
+  const [modalita, setModalita] = useState('Contanti');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const totale = calcolaTotaleOrdineConIva(ordine, db).totale;
+
+  async function ricarica() {
+    setLoading(true);
+    try {
+      const p = await api.ordini.pagamenti(ordine.id);
+      setPagamenti(p);
+      const ordini = await api.ordini.list();
+      setDb(d => ({ ...d, ordini }));
+      const ordiniPagamenti = await api.ordiniPagamenti.list();
+      setDb(d => ({ ...d, ordiniPagamenti }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { ricarica(); }, [ordine.id]);
+
+  const pagatoFinora = (pagamenti || []).filter(p => !p.stornato).reduce((s, p) => s + p.importo, 0);
+  const residuo = Math.round((totale - pagatoFinora) * 100) / 100;
+
+  async function registra() {
+    setError('');
+    const imp = parseFloat(importo);
+    if (!imp || imp <= 0) return setError('Inserisci un importo positivo.');
+    if (imp > residuo + 0.01) return setError(`L'importo non può superare il residuo (${formatEUR(residuo)}).`);
+    setSaving(true);
+    try {
+      await api.ordini.pagamento(ordine.id, { importo: imp, modalita, data: todayISO() });
+      setImporto('');
+      await ricarica();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function storna(pagamentoId) {
+    try {
+      await api.ordiniPagamenti.storna(pagamentoId);
+      await ricarica();
+    } catch (e) {
+      alert('Errore: ' + e.message);
+    }
+  }
+
+  return (
+    <Modal title={`Pagamento — ordine ${ordine.id}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="flex justify-between text-sm"><span className="text-stone-500">Totale ordine (IVA incl.)</span><span className="font-mono-num">{formatEUR(totale)}</span></div>
+        <div className="flex justify-between text-sm"><span className="text-stone-500">Residuo da incassare</span><span className={cn('font-mono-num font-medium', residuo > 0.01 ? 'text-red-700' : 'text-emerald-700')}>{formatEUR(residuo)}</span></div>
+        {!loading && pagamenti && pagamenti.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-stone-500 mb-1">Pagamenti registrati</p>
+            {pagamenti.map(p => (
+              <div key={p.id} className={cn('flex items-center justify-between text-xs py-1', p.stornato ? 'line-through text-stone-400' : '')}>
+                <span>{formatDate(p.data)} — {formatEUR(p.importo)} ({p.modalita}){p.distintaId ? ' · incluso in distinta versamento' : ''}</span>
+                {!p.stornato && !p.distintaId && <button onClick={() => storna(p.id)} className="text-red-600 hover:underline ml-2">Storna</button>}
+              </div>
+            ))}
+          </div>
+        )}
+        {residuo > 0.01 && (
+          <div className="border-t border-stone-200 pt-3 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-stone-500 mb-1">Importo incassato ora (€, max {formatEUR(residuo)})</label>
+              <input type="number" step="0.01" className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm" value={importo} onChange={e => setImporto(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-500 mb-1">Modalità</label>
+              <select className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm" value={modalita} onChange={e => setModalita(e.target.value)}>
+                <option value="Contanti">Contanti</option>
+                <option value="Assegno">Assegno</option>
+                <option value="Bonifico">Bonifico</option>
+                <option value="Rimessa diretta">Rimessa diretta</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setImporto(String(residuo))}>Salda tutto</Button>
+            </div>
+          </div>
+        )}
+        {error && <p className="text-sm text-red-700">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" onClick={onClose}>Chiudi</Button>
+          {residuo > 0.01 && <Button onClick={registra} disabled={saving}>{saving ? 'Registrazione...' : 'Registra pagamento'}</Button>}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -3749,7 +3997,7 @@ export default function App() {
     const [
       clienti, agenti, prodotti, ordini, fatture, movimenti, pianoConti, magazzinoVerde, lotti,
       fornitori, listini, corrispettivi, ordiniAcquisto, attrezzature, interventi, furgoni, costiMezzo,
-      visite, comunicazioni, giriConsegna, categorieProdotto,
+      visite, comunicazioni, giriConsegna, categorieProdotto, ordiniPagamenti,
     ] = await Promise.all([
       safeList(() => api.clienti.list()), safeList(() => api.agenti.list()), safeList(() => api.prodotti.list()), safeList(() => api.ordini.list()),
       safeList(() => api.fatture.list()), safeList(() => api.contabilita.movimenti()), safeList(() => api.contabilita.pianoConti()),
@@ -3757,6 +4005,7 @@ export default function App() {
       safeList(() => api.fornitori.list()), safeList(() => api.listini.list()), safeList(() => api.corrispettivi.list()), safeList(() => api.ordiniAcquisto.list()),
       safeList(() => api.attrezzature.list()), safeList(() => api.interventi.list()), safeList(() => api.furgoni.list()), safeList(() => api.costiMezzo.list()),
       safeList(() => api.visite.list()), safeList(() => api.comunicazioni.list()), safeList(() => api.giriConsegna.list()), safeList(() => api.categorieProdotto.list()),
+      safeList(() => api.ordiniPagamenti.list()),
     ]);
     const ammortamentiMesiRes = await safeList(() => api.ammortamenti.list());
     const ammortamentiMesi = ammortamentiMesiRes.map(r => r.mese);
@@ -3772,7 +4021,7 @@ export default function App() {
       lotti, fornitori, listini, corrispettivi, ordiniAcquisto,
       attrezzature, interventi, furgoni, costiMezzo, visite, comunicazioni, giriConsegna,
       insoluti, noteCredito, utenti,
-      ammortamentiMesi, categorieProdotto,
+      ammortamentiMesi, categorieProdotto, ordiniPagamenti,
     });
   }
 

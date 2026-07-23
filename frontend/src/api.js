@@ -68,6 +68,17 @@ export const api = {
     list: () => request('GET', '/ordini'),
     create: (b) => request('POST', '/ordini', b),
     fattura: (id) => request('POST', '/ordini/' + id + '/fattura'),
+    pagamenti: (id) => request('GET', '/ordini/' + id + '/pagamenti'),
+    pagamento: (id, b) => request('POST', '/ordini/' + id + '/pagamento', b),
+  },
+  ordiniPagamenti: {
+    list: () => request('GET', '/ordini-pagamenti'),
+    storna: (id) => request('POST', '/ordini-pagamenti/' + id + '/storna'),
+  },
+  versamenti: {
+    list: (agenteId) => request('GET', '/agenti/' + agenteId + '/versamenti'),
+    genera: (agenteId, b) => request('POST', '/agenti/' + agenteId + '/versamenti/genera', b),
+    get: (id) => request('GET', '/versamenti/' + id),
   },
   fatture: {
     list: () => request('GET', '/fatture'),
