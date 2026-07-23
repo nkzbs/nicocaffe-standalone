@@ -34,6 +34,12 @@ module.exports = function (app, db, deps) {
   ensureColumn('fatture_righe', 'aliquota_iva_override', 'REAL');
   ensureColumn('corrispettivi_righe', 'aliquota_iva_override', 'REAL');
 
+  // Migrazione: anagrafica cliente estesa (PEC, Codice Univoco, tipo_pagamento strutturato)
+  ensureColumn('clienti', 'pec', 'TEXT');
+  ensureColumn('clienti', 'codice_univoco', 'TEXT');
+  ensureColumn('clienti', 'tipo_pagamento', "TEXT NOT NULL DEFAULT 'Bonifico'");
+  db.exec("UPDATE clienti SET tipo_pagamento = 'Bonifico' WHERE tipo_pagamento IS NULL OR tipo_pagamento = ''");
+
   // Seed categorie di base, solo se la tabella è vuota (idempotente: non duplica ad ogni avvio)
   const categorieEsistenti = db.prepare('SELECT COUNT(*) as n FROM categorie_prodotto').get().n;
   if (categorieEsistenti === 0) {

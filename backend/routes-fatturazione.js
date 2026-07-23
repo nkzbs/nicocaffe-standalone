@@ -5,6 +5,43 @@
 module.exports = function (app, db, deps) {
   const authMiddleware = deps.authMiddleware, requireRole = deps.requireRole, uid = deps.uid, logAttivita = deps.logAttivita;
 
+  // Calcola la data di scadenza fattura a partire dalla data di emissione e dal tipo_pagamento del cliente.
+  // Regole (concordate con N, scoping CRM 22/7/2026):
+  //  - Ri.Ba.30      -> data fattura + 30gg
+  //  - Ri.Ba.30FM    -> fine mese fattura + 30gg
+  //  - Ri.Ba.60      -> data fattura + 60gg
+  //  - Ri.Ba.60FM    -> fine mese fattura + 60gg
+  //  - Rimessa diretta / Contanti / Assegno -> immediato, nessuna scadenza (= data fattura)
+  //  - Bonifico      -> immediato salvo diversa indicazione (= data fattura)
+  function calcolaScadenza(dataFatturaISO, tipoPagamento) {
+    const [y, m, d] = dataFatturaISO.split('-').map(Number);
+    const base = new Date(y, m - 1, d);
+    switch (tipoPagamento) {
+      case 'Ri.Ba.30':
+        base.setDate(base.getDate() + 30);
+        return base.toISOString().slice(0, 10);
+      case 'Ri.Ba.30FM': {
+        const fineMese = new Date(y, m, 0); // ultimo giorno del mese della fattura
+        fineMese.setDate(fineMese.getDate() + 30);
+        return fineMese.toISOString().slice(0, 10);
+      }
+      case 'Ri.Ba.60':
+        base.setDate(base.getDate() + 60);
+        return base.toISOString().slice(0, 10);
+      case 'Ri.Ba.60FM': {
+        const fineMese = new Date(y, m, 0);
+        fineMese.setDate(fineMese.getDate() + 60);
+        return fineMese.toISOString().slice(0, 10);
+      }
+      case 'Rimessa diretta':
+      case 'Contanti':
+      case 'Assegno':
+      case 'Bonifico':
+      default:
+        return dataFatturaISO;
+    }
+  }
+
   const generaFatturaTx = db.transaction((ordineId, numero) => {
     const ordine = db.prepare('SELECT * FROM ordini WHERE id = ?').get(ordineId);
     if (!ordine) throw new Error('Ordine non trovato');
@@ -27,8 +64,7 @@ module.exports = function (app, db, deps) {
 
     const id = uid('FT');
     const oggi = new Date().toISOString().slice(0, 10);
-    const giorniPagamento = parseInt((cliente.pagamento || '30').replace(/\D/g, ''), 10) || 30;
-    const scadenza = new Date(Date.now() + giorniPagamento * 86400000).toISOString().slice(0, 10);
+    const scadenza = calcolaScadenza(oggi, cliente.tipo_pagamento || 'Bonifico');
 
     db.prepare("INSERT INTO fatture (id, numero, data, cliente_id, agente_id, ordine_id, imponibile, iva, totale, scadenza, stato) VALUES (?,?,?,?,?,?,?,?,?,?,'emessa')")
       .run(id, numero, oggi, ordine.cliente_id, ordine.agente_id, ordineId, imponibile, iva, totale, scadenza);

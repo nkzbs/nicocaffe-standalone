@@ -102,19 +102,23 @@ app.get('/api/clienti', authMiddleware, (req, res) => {
   res.json(rows.map(r => Object.assign({}, r, { documenti: JSON.parse(r.documenti || '[]') })));
 });
 
+const TIPI_PAGAMENTO = ['Ri.Ba.30', 'Ri.Ba.30FM', 'Ri.Ba.60', 'Ri.Ba.60FM', 'Rimessa diretta', 'Contanti', 'Assegno', 'Bonifico'];
+
 app.post('/api/clienti', authMiddleware, requireRole('utente', 'Amministratore'), (req, res) => {
   const b = req.body;
   const id = uid('CL');
-  db.prepare('INSERT INTO clienti (id, ragione_sociale, piva, citta, indirizzo, telefono, email, pagamento, fido, agente_id, sconto_percent, documenti) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id, b.ragioneSociale, b.piva, b.citta, b.indirizzo, b.telefono, b.email, b.pagamento, b.fido || 0, b.agenteId || null, b.scontoPercent || 0, JSON.stringify(b.documenti || []));
+  const tipoPagamento = TIPI_PAGAMENTO.includes(b.tipoPagamento) ? b.tipoPagamento : 'Bonifico';
+  db.prepare('INSERT INTO clienti (id, ragione_sociale, piva, pec, codice_univoco, citta, indirizzo, telefono, email, pagamento, tipo_pagamento, fido, agente_id, sconto_percent, documenti) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, b.ragioneSociale, b.piva, b.pec || null, b.codiceUnivoco || null, b.citta, b.indirizzo, b.telefono, b.email, b.pagamento, tipoPagamento, b.fido || 0, b.agenteId || null, b.scontoPercent || 0, JSON.stringify(b.documenti || []));
   logAttivita(req.user.id, 'crea_cliente', { id });
   res.status(201).json({ id });
 });
 
 app.put('/api/clienti/:id', authMiddleware, requireRole('utente', 'Amministratore'), (req, res) => {
   const b = req.body;
-  db.prepare('UPDATE clienti SET ragione_sociale=?, piva=?, citta=?, indirizzo=?, telefono=?, email=?, pagamento=?, fido=?, agente_id=?, sconto_percent=?, documenti=? WHERE id=?')
-    .run(b.ragioneSociale, b.piva, b.citta, b.indirizzo, b.telefono, b.email, b.pagamento, b.fido || 0, b.agenteId || null, b.scontoPercent || 0, JSON.stringify(b.documenti || []), req.params.id);
+  const tipoPagamento = TIPI_PAGAMENTO.includes(b.tipoPagamento) ? b.tipoPagamento : 'Bonifico';
+  db.prepare('UPDATE clienti SET ragione_sociale=?, piva=?, pec=?, codice_univoco=?, citta=?, indirizzo=?, telefono=?, email=?, pagamento=?, tipo_pagamento=?, fido=?, agente_id=?, sconto_percent=?, documenti=? WHERE id=?')
+    .run(b.ragioneSociale, b.piva, b.pec || null, b.codiceUnivoco || null, b.citta, b.indirizzo, b.telefono, b.email, b.pagamento, tipoPagamento, b.fido || 0, b.agenteId || null, b.scontoPercent || 0, JSON.stringify(b.documenti || []), req.params.id);
   logAttivita(req.user.id, 'modifica_cliente', { id: req.params.id });
   res.json({ ok: true });
 });

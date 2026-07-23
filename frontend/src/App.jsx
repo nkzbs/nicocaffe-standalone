@@ -9,6 +9,18 @@ import { api, getToken, setToken, clearToken } from './api';
 
 const IVA_RATE = 0.22;
 
+const TIPI_PAGAMENTO_OPTIONS = [
+  { value: 'Ri.Ba.30', label: 'Ri.Ba. 30 (data fattura + 30gg)' },
+  { value: 'Ri.Ba.30FM', label: 'Ri.Ba. 30 FM (fine mese + 30gg)' },
+  { value: 'Ri.Ba.60', label: 'Ri.Ba. 60 (data fattura + 60gg)' },
+  { value: 'Ri.Ba.60FM', label: 'Ri.Ba. 60 FM (fine mese + 60gg)' },
+  { value: 'Rimessa diretta', label: 'Rimessa diretta (immediato)' },
+  { value: 'Contanti', label: 'Contanti (immediato)' },
+  { value: 'Assegno', label: 'Assegno (immediato)' },
+  { value: 'Bonifico', label: 'Bonifico (immediato)' },
+];
+const TIPO_PAGAMENTO_LABEL = Object.fromEntries(TIPI_PAGAMENTO_OPTIONS.map(o => [o.value, o.label]));
+
 function uid(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -591,7 +603,7 @@ function buildFatturaHTML(fattura, db) {
     <tr class="total-row"><td>Totale fattura</td><td class="right">€ ${fattura.totale.toFixed(2)}</td></tr>
   </tbody></table>
   <hr class="thin" style="margin-top:24px">
-  <div class="label">Condizioni di pagamento</div><div class="value">${cliente.pagamento||'—'}</div>`;
+  <div class="label">Condizioni di pagamento</div><div class="value">${TIPO_PAGAMENTO_LABEL[cliente.tipoPagamento] || cliente.tipoPagamento || '—'}</div>`;
 }
 
 function buildOrdineHTML(ordine, db) {
@@ -911,7 +923,9 @@ function ClientiView({ db, setDb }) {
   const fields = [
     { name: 'ragioneSociale', label: 'Ragione sociale', full: true },
     { name: 'piva', label: 'P.IVA' },
-    { name: 'pagamento', label: 'Condizioni pagamento', type: 'select', options: [{ value: 'Immediato', label: 'Immediato' }, { value: '30 gg', label: '30 gg' }, { value: '60 gg', label: '60 gg' }] },
+    { name: 'codiceUnivoco', label: 'Codice Univoco' },
+    { name: 'pec', label: 'PEC' },
+    { name: 'tipoPagamento', label: 'Condizioni pagamento', type: 'select', options: TIPI_PAGAMENTO_OPTIONS },
     { name: 'citta', label: 'Città' },
     { name: 'indirizzo', label: 'Indirizzo' },
     { name: 'telefono', label: 'Telefono' },
@@ -956,7 +970,7 @@ function ClientiView({ db, setDb }) {
           { key: 'citta', label: 'Città' },
           { key: 'agente', label: 'Agente', render: r => { const a = db.agenti.find(x => x.id === r.agenteId); return a ? `${a.nome} ${a.cognome}` : '—'; } },
           { key: 'scontoPercent', label: 'Sc.%', align: 'right', render: r => r.scontoPercent ? `${r.scontoPercent}%` : '—' },
-          { key: 'pagamento', label: 'Pagamento' },
+          { key: 'tipoPagamento', label: 'Pagamento', render: r => TIPO_PAGAMENTO_LABEL[r.tipoPagamento] || r.tipoPagamento || '—' },
           { key: 'esposizione', label: 'Esposizione / Fido', render: r => {
             const esp = esposizioneCliente(db, r.id);
             const pct = r.fido > 0 ? Math.round(esp / r.fido * 100) : 0;
@@ -2802,8 +2816,9 @@ function ExportView({ db }) {
   const exports = [
     { id: 'clienti', label: 'Anagrafica clienti', run: () => toCSV(db.clienti, [
       { label: 'Ragione sociale', key: 'ragioneSociale' }, { label: 'P.IVA', key: 'piva' }, { label: 'Città', key: 'citta' },
+      { label: 'PEC', key: 'pec' }, { label: 'Codice Univoco', key: 'codiceUnivoco' },
       { label: 'Indirizzo', key: 'indirizzo' }, { label: 'Telefono', key: 'telefono' }, { label: 'Email', key: 'email' },
-      { label: 'Pagamento', key: 'pagamento' }, { label: 'Fido', key: 'fido' },
+      { label: 'Pagamento', get: r => TIPO_PAGAMENTO_LABEL[r.tipoPagamento] || r.tipoPagamento || '' }, { label: 'Fido', key: 'fido' },
     ]) },
     { id: 'fatture', label: 'Fatture emesse', run: () => toCSV(db.fatture, [
       { label: 'Numero', key: 'numero' }, { label: 'Data', key: 'data' },
@@ -3195,7 +3210,7 @@ function AgentClientiView({ clienti, db }) {
         { key: 'telefono', label: 'Telefono' },
         { key: 'email', label: 'Email' },
         { key: 'scontoPercent', label: 'Sc. %', render: r => r.scontoPercent ? `${r.scontoPercent}%` : '—' },
-        { key: 'pagamento', label: 'Pagamento' },
+        { key: 'tipoPagamento', label: 'Pagamento', render: r => TIPO_PAGAMENTO_LABEL[r.tipoPagamento] || r.tipoPagamento || '—' },
         { key: 'esposizione', label: 'Espos. / Fido', render: r => {
           const esp = esposizioneCliente(db, r.id);
           const danger = r.fido > 0 && esp > r.fido * 0.8;
