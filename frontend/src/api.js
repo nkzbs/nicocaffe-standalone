@@ -164,6 +164,10 @@ export const api = {
     remove: (id) => request('DELETE', '/utenti/' + id),
     resetPassword: (id, nuovaPassword) => request('POST', '/utenti/' + id + '/reset-password', { nuovaPassword }),
   },
+  backup: {
+    list: () => request('GET', '/backup'),
+    esegui: () => request('POST', '/backup'),
+  },
   insoluti: {
     list: () => request('GET', '/insoluti'),
     create: (b) => request('POST', '/insoluti', b),

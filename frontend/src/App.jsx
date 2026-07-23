@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import {
   Coffee, LayoutDashboard, Users, UserCog, Package, ShoppingCart, Receipt,
   Wallet, Calculator, ClipboardList, Plus, X, Check, AlertTriangle, LogOut,
-  Pencil, Trash2, TrendingUp, RotateCcw,
+  Pencil, Trash2, TrendingUp, RotateCcw, Database,
 } from 'lucide-react';
 import { api, getToken, setToken, clearToken } from './api';
 
@@ -3883,6 +3883,7 @@ const ADMIN_NAV = [
     { id: 'contabilita', label: 'Contabilità generale', icon: Calculator },
     { id: 'centriCosto', label: 'Centri di costo & EBITDA', icon: TrendingUp },
     { id: 'utenti', label: 'Utenti & permessi', icon: UserCog },
+    { id: 'backup', label: 'Backup', icon: Database },
     { id: 'export', label: 'Export dati', icon: Receipt },
   ]},
 ];
@@ -3909,6 +3910,7 @@ const ADMIN_TITLES = {
   contabilita: ['AMMINISTRAZIONE', 'Contabilità generale'],
   centriCosto: ['AMMINISTRAZIONE', 'Centri di costo & EBITDA'],
   utenti: ['AMMINISTRAZIONE', 'Utenti & permessi'],
+  backup: ['AMMINISTRAZIONE', 'Backup'],
   export: ['AMMINISTRAZIONE', 'Export dati'],
 };
 
@@ -3921,6 +3923,72 @@ const AGENT_NAV_GROUPS = [{ section: '', items: [
 ] }];
 
 const AGENT_TITLES = { dashboard: 'Riepilogo', clienti: 'I miei clienti', nuovoOrdine: 'Nuovo ordine', ordini: 'I miei ordini', visite: 'Le mie visite' };
+
+function BackupView() {
+  const [backups, setBackups] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+
+  async function ricarica() {
+    setLoading(true);
+    try {
+      const b = await api.backup.list();
+      setBackups(b);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { ricarica(); }, []);
+
+  async function eseguiOra() {
+    setError(''); setMsg(''); setBusy(true);
+    try {
+      const res = await api.backup.esegui();
+      setMsg(`Backup completato: ${res.file}`);
+      await ricarica();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-stone-700">Backup automatico</p>
+            <p className="text-xs text-stone-500 mt-1">Eseguito ogni 24 ore, ultimi 30 backup conservati. Scritti su una volume Docker separata dai dati live.</p>
+          </div>
+          <Button onClick={eseguiOra} disabled={busy}>{busy ? 'Backup in corso...' : 'Backup ora'}</Button>
+        </div>
+        {msg && <p className="text-sm text-emerald-700 mt-3">{msg}</p>}
+        {error && <p className="text-sm text-red-700 mt-3">{error}</p>}
+      </Card>
+      <div>
+        <p className="text-sm font-medium text-stone-600 mb-2">Backup disponibili</p>
+        <DataTable
+          columns={[
+            { key: 'nome', label: 'File', mono: true },
+            { key: 'data', label: 'Data', render: r => new Date(r.data).toLocaleString('it-IT') },
+            { key: 'dimensioneKb', label: 'Dimensione', align: 'right', render: r => `${r.dimensioneKb} KB` },
+          ]}
+          rows={backups || []}
+          empty={loading ? 'Caricamento...' : 'Nessun backup ancora presente.'}
+        />
+      </div>
+      <div className="p-3 bg-amber-100 rounded-md text-xs text-stone-600">
+        <strong>Ripristino in caso di fermo macchina:</strong> il ripristino non è automatizzato dall'app (per sicurezza — sostituire il file mentre il processo è attivo rischierebbe di corrompere la connessione al DB). La procedura è: fermare il container, copiare il file di backup scelto sopra a quello live nella volume dati, riavviare il container. Richiede pochi secondi.
+      </div>
+    </div>
+  );
+}
 
 function AdminApp({ db, setDb, onLogout, onReload, utente }) {
   const [active, setActive] = useState('dashboard');
@@ -3951,6 +4019,7 @@ function AdminApp({ db, setDb, onLogout, onReload, utente }) {
       {active === 'contabilita'    && <ContabilitaView db={db} setDb={setDb} />}
       {active === 'centriCosto'    && <CentriCostoView db={db} setDb={setDb} />}
       {active === 'utenti'         && isAdmin && <UtentiView db={db} setDb={setDb} />}
+      {active === 'backup'         && <BackupView />}
       {active === 'export'         && <ExportView db={db} />}
     </AppShell>
   );
