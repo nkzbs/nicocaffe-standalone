@@ -161,15 +161,38 @@ app.put('/api/prodotti/:id', authMiddleware, requireRole('utente', 'Amministrato
 // ============================================================
 const creaOrdineTx = db.transaction((ordine) => {
   const id = uid('OR');
-  db.prepare('INSERT INTO ordini (id, data, cliente_id, agente_id, stato) VALUES (?,?,?,?,?)')
-    .run(id, ordine.data, ordine.clienteId, ordine.agenteId || null, ordine.stato || 'confermato');
+  const agenteId = ordine.agenteId || null;
+
+  // Furgone assegnato all'agente (se esiste): lo scarico avviene dalla sua giacenza,
+  // non dal magazzino centrale (già trasferito lì con il "carico").
+  const furgone = agenteId
+    ? db.prepare('SELECT id FROM furgoni WHERE agente_id = ?').get(agenteId)
+    : null;
+
+  const getGiacenzaFurgone = db.prepare('SELECT quantita FROM giacenza_furgone WHERE furgone_id = ? AND prodotto_id = ?');
+  let scortaFurgoneInsufficiente = 0;
+  if (furgone) {
+    ordine.righe.forEach(r => {
+      const riga = getGiacenzaFurgone.get(furgone.id, r.prodottoId);
+      const disponibile = riga ? riga.quantita : 0;
+      if (disponibile < r.quantita) scortaFurgoneInsufficiente = 1;
+    });
+  }
+
+  db.prepare('INSERT INTO ordini (id, data, cliente_id, agente_id, stato, scorta_furgone_insufficiente) VALUES (?,?,?,?,?,?)')
+    .run(id, ordine.data, ordine.clienteId, agenteId, ordine.stato || 'confermato', scortaFurgoneInsufficiente);
 
   const insRiga = db.prepare('INSERT INTO ordini_righe (ordine_id, prodotto_id, quantita, prezzo_unitario, aliquota_iva_override) VALUES (?,?,?,?,?)');
-  const decScorta = db.prepare('UPDATE prodotti SET scorta = MAX(0, scorta - ?) WHERE id = ?');
+  const decScortaCentrale = db.prepare('UPDATE prodotti SET scorta = MAX(0, scorta - ?) WHERE id = ?');
+  const decGiacenzaFurgone = db.prepare('UPDATE giacenza_furgone SET quantita = MAX(0, quantita - ?) WHERE furgone_id = ? AND prodotto_id = ?');
 
   ordine.righe.forEach(r => {
     insRiga.run(id, r.prodottoId, r.quantita, r.prezzoUnitario, (r.aliquotaIva === '' || r.aliquotaIva === undefined || r.aliquotaIva === null) ? null : Number(r.aliquotaIva));
-    decScorta.run(r.quantita, r.prodottoId);
+    if (furgone) {
+      decGiacenzaFurgone.run(r.quantita, furgone.id, r.prodottoId);
+    } else {
+      decScortaCentrale.run(r.quantita, r.prodottoId);
+    }
   });
   return id;
 });
@@ -231,6 +254,7 @@ app.get('/api/contabilita/piano-conti', authMiddleware, (req, res) => {
 require('./routes-fatturazione')(app, db, { authMiddleware, requireRole, uid, logAttivita });
 require('./routes-extra2')(app, db, { authMiddleware, requireRole, uid, logAttivita });
 require('./routes-extra3')(app, db, { authMiddleware, requireRole, uid, logAttivita });
+require('./routes-extra4')(app, db, { authMiddleware, requireRole, uid, logAttivita });
 
 // ---------- Health check ----------
 app.get('/api/health', (req, res) => res.json({ ok: true, db: DB_PATH }));
