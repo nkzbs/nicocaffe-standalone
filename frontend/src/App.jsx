@@ -104,6 +104,15 @@ function residuoOrdine(db, ordine) {
   return Math.round((totale - pagato) * 100) / 100;
 }
 
+function statoPagamentoOrdine(ordine, db) {
+  const totale = calcolaTotaleOrdineConIva(ordine, db).totale;
+  const pagamenti = (db.ordiniPagamenti || []).filter(p => p.ordineId === ordine.id && !p.stornato);
+  const pagato = Math.round(pagamenti.reduce((s, p) => s + p.importo, 0) * 100) / 100;
+  const residuo = Math.round((totale - pagato) * 100) / 100;
+  const modalita = pagamenti.length ? [...new Set(pagamenti.map(p => p.modalita))].join(', ') : null;
+  return { totale, pagato, residuo, modalita };
+}
+
 function esposizioneCliente(db, clienteId) {
   const fattureAperte = db.fatture.filter(f => f.clienteId === clienteId && f.stato !== 'pagata')
     .reduce((s, f) => s + residuoFattura(db, f), 0);
@@ -644,11 +653,23 @@ function buildOrdineHTML(ordine, db) {
 function buildBollaHTML(ordine, db) {
   const cliente = db.clienti.find(c => c.id === ordine.clienteId) || {};
   const agente = db.agenti.find(a => a.id === ordine.agenteId);
-  const totale = ordine.righe.reduce((s, r) => s + r.quantita * r.prezzoUnitario, 0);
+  const imponibile = ordine.righe.reduce((s, r) => s + r.quantita * r.prezzoUnitario, 0);
+  const { totale, pagato, residuo, modalita } = statoPagamentoOrdine(ordine, db);
   const rigaHTML = (r) => {
     const p = db.prodotti.find(x => x.id === r.prodottoId) || {};
     return `<div class="riga"><div class="riga-nome">${p.nome || r.prodottoId}</div><div class="riga-dett"><span>${p.formato||''}</span><span>x${r.quantita}</span></div></div>`;
   };
+  let pagamentoHTML;
+  if (residuo <= 0.01 && pagato > 0) {
+    pagamentoHTML = `<div style="text-align:center;font-size:10px;font-weight:700;margin:6px 0">✓ PAGATO${modalita ? ' — ' + modalita : ''}</div>`;
+  } else if (pagato > 0) {
+    pagamentoHTML = `<div style="font-size:9px;margin:6px 0">
+      <div style="display:flex;justify-content:space-between"><span>Incassato ora${modalita ? ' (' + modalita + ')' : ''}</span><span>€ ${pagato.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:700"><span>Residuo da saldare</span><span>€ ${residuo.toFixed(2)}</span></div>
+    </div>`;
+  } else {
+    pagamentoHTML = `<div style="text-align:center;font-size:9px;margin:6px 0">Da saldare — € ${residuo.toFixed(2)}</div>`;
+  }
   return `
   <div style="text-align:center;margin-bottom:8px">
     <div style="font-size:16px;font-weight:700;letter-spacing:0.5px">☕ NICO CAFFÈ</div>
@@ -667,9 +688,10 @@ function buildBollaHTML(ordine, db) {
   <div class="b-divider"></div>
   <div style="margin:6px 0">${ordine.righe.map(rigaHTML).join('')}</div>
   <div class="b-divider"></div>
-  <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;margin:6px 0">
-    <span>TOTALE</span><span>€ ${totale.toFixed(2)}</span>
-  </div>
+  <div style="font-size:9px;display:flex;justify-content:space-between;margin:2px 0"><span>Imponibile</span><span>€ ${imponibile.toFixed(2)}</span></div>
+  <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;margin:4px 0 6px"><span>TOTALE (IVA incl.)</span><span>€ ${totale.toFixed(2)}</span></div>
+  <div class="b-divider"></div>
+  ${pagamentoHTML}
   <div class="b-divider"></div>
   <div style="margin-top:16px;font-size:9px">
     <div>Firma per ricevuta merce:</div>
