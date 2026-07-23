@@ -1658,7 +1658,12 @@ function OrdiniView({ db, setDb }) {
           { key: 'righe', label: 'Articoli', align: 'right', render: r => r.righe.length },
           { key: 'totale', label: 'Totale imponibile', align: 'right', mono: true, render: r => formatEUR(r.righe.reduce((s, x) => s + x.quantita * x.prezzoUnitario, 0)) },
           { key: 'totaleIva', label: 'Totale (IVA incl.)', align: 'right', mono: true, render: r => formatEUR(calcolaTotaleOrdineConIva(r, db).totale) },
-          { key: 'stato', label: 'Stato', render: r => statoOrdineBadge(r.stato) },
+          { key: 'stato', label: 'Stato', render: r => (
+            <div className="flex items-center gap-1.5">
+              {statoOrdineBadge(r.stato)}
+              {r.scortaFurgoneInsufficiente ? <Badge tone="warning">scorta furgone insufficiente</Badge> : null}
+            </div>
+          ) },
         ]}
         rows={rows}
         actions={r => (
@@ -2397,6 +2402,8 @@ function FlottaView({ db, setDb }) {
   const [newCosto, setNewCosto] = useState(null);
   const [newGiro, setNewGiro] = useState(null);
   const [toDelete, setToDelete] = useState(null);
+  const [assegnaTarget, setAssegnaTarget] = useState(null);
+  const [caricoTarget, setCaricoTarget] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const giroFields = [
@@ -2501,11 +2508,14 @@ function FlottaView({ db, setDb }) {
             { key: 'targa', label: 'Targa', mono: true },
             { key: 'modello', label: 'Modello' },
             { key: 'kmAttuali', label: 'Km', align: 'right', mono: true },
+            { key: 'agente', label: 'Agente assegnato', render: r => { const a = (db.agenti||[]).find(x => x.id === r.agenteId); return a ? `${a.nome} ${a.cognome}` : <span className="text-stone-400">Nessuno</span>; } },
             { key: 'costi', label: 'Costi totali', align: 'right', mono: true, render: r => formatEUR(costiTotaliFurgone(db, r.id)) },
           ]}
           rows={db.furgoni||[]}
           actions={r => (
             <div className="flex gap-1">
+              <Button size="sm" variant="ghost" onClick={() => setAssegnaTarget(r)}>Assegna agente</Button>
+              <Button size="sm" variant="ghost" onClick={() => setCaricoTarget(r)}>Carico</Button>
               <button onClick={() => setNewFurgone(r)} className="p-1.5 text-stone-400 hover:text-orange-700"><Pencil size={14}/></button>
               <button onClick={() => setToDelete(r)} className="p-1.5 text-stone-400 hover:text-red-700"><Trash2 size={14}/></button>
             </div>
@@ -2544,7 +2554,130 @@ function FlottaView({ db, setDb }) {
       {newCosto && <FormModal title="Nuovo costo mezzo" fields={costoFields} initial={{ data: todayISO(), tipo: 'carburante' }} onClose={() => setNewCosto(null)} onSave={salvaCosto} saving={saving} />}
       {newGiro && <FormModal title="Nuovo giro di consegna" fields={giroFields} initial={{ data: todayISO() }} onClose={() => setNewGiro(null)} onSave={salvaGiro} saving={saving} />}
       {toDelete && <ConfirmDialog text={`Eliminare il furgone ${toDelete.targa}?`} onClose={() => setToDelete(null)} onConfirm={() => handleDelete(toDelete)} />}
+      {assegnaTarget && <AssegnaAgenteModal furgone={assegnaTarget} db={db} setDb={setDb} onClose={() => setAssegnaTarget(null)} />}
+      {caricoTarget && <CaricoFurgoneModal furgone={caricoTarget} db={db} onClose={() => setCaricoTarget(null)} />}
     </div>
+  );
+}
+
+function AssegnaAgenteModal({ furgone, db, setDb, onClose }) {
+  const [agenteId, setAgenteId] = useState(furgone.agenteId || '');
+  const [saving, setSaving] = useState(false);
+
+  async function salva() {
+    setSaving(true);
+    try {
+      await api.furgoni.assegnaAgente(furgone.id, agenteId || null);
+      const furgoni = await api.furgoni.list();
+      setDb(d => ({ ...d, furgoni }));
+      onClose();
+    } catch (e) {
+      alert('Errore: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={`Assegna agente — ${furgone.targa}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-xs text-stone-500">Ogni furgone può avere un solo agente assegnato. Assegnandolo qui, un eventuale furgone già assegnato a questo agente verrà liberato automaticamente.</p>
+        <div>
+          <label className="block text-xs font-medium text-stone-500 mb-1">Agente</label>
+          <select value={agenteId} onChange={e => setAgenteId(e.target.value)} className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm">
+            <option value="">Nessuno</option>
+            {(db.agenti||[]).map(a => <option key={a.id} value={a.id}>{a.nome} {a.cognome}</option>)}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" onClick={onClose}>Annulla</Button>
+          <Button onClick={salva} disabled={saving}>{saving ? 'Salvataggio...' : 'Salva'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function CaricoFurgoneModal({ furgone, db, onClose }) {
+  const [giacenza, setGiacenza] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [prodottoId, setProdottoId] = useState('');
+  const [quantita, setQuantita] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function ricarica() {
+    setLoading(true);
+    try {
+      const g = await api.furgoni.giacenza(furgone.id);
+      setGiacenza(g);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { ricarica(); }, [furgone.id]);
+
+  async function salvaCarico() {
+    setError('');
+    const q = parseFloat(quantita);
+    if (!prodottoId) return setError('Seleziona un prodotto.');
+    if (!q || q <= 0) return setError('Inserisci una quantità positiva.');
+    setSaving(true);
+    try {
+      await api.furgoni.carico(furgone.id, prodottoId, q);
+      setProdottoId(''); setQuantita('');
+      await ricarica();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={`Carico furgone — ${furgone.targa}`} wide onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <p className="text-xs font-medium text-stone-500 mb-2">Giacenza attuale sul furgone</p>
+          {loading ? (
+            <p className="text-sm text-stone-400">Caricamento...</p>
+          ) : (
+            <DataTable
+              columns={[
+                { key: 'nome', label: 'Prodotto' },
+                { key: 'quantita', label: 'Quantità', align: 'right', mono: true, render: r => `${r.quantita} ${r.unita || ''}` },
+              ]}
+              rows={giacenza || []}
+              empty="Nessuna giacenza sul furgone."
+            />
+          )}
+        </div>
+        <div className="border-t border-stone-200 pt-4">
+          <p className="text-xs font-medium text-stone-500 mb-2">Carica dal magazzino centrale</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-stone-500 mb-1">Prodotto</label>
+              <select value={prodottoId} onChange={e => setProdottoId(e.target.value)} className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm">
+                <option value="">Seleziona...</option>
+                {(db.prodotti||[]).map(p => <option key={p.id} value={p.id}>{p.nome} (centrale: {p.scorta} {p.unita})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-500 mb-1">Quantità</label>
+              <input type="number" value={quantita} onChange={e => setQuantita(e.target.value)} className="w-full rounded-md border border-stone-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+          {error && <p className="text-sm text-red-700 mt-2">{error}</p>}
+          <div className="flex justify-end gap-2 pt-3">
+            <Button variant="ghost" onClick={onClose}>Chiudi</Button>
+            <Button onClick={salvaCarico} disabled={saving}>{saving ? 'Carico in corso...' : 'Carica'}</Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

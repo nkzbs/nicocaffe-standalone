@@ -126,6 +126,9 @@ export const api = {
     create: (b) => request('POST', '/furgoni', b),
     update: (id, b) => request('PUT', '/furgoni/' + id, b),
     remove: (id) => request('DELETE', '/furgoni/' + id),
+    assegnaAgente: (id, agenteId) => request('PUT', '/furgoni/' + id + '/agente', { agenteId }),
+    giacenza: (id) => request('GET', '/furgoni/' + id + '/giacenza'),
+    carico: (id, prodottoId, quantita) => request('POST', '/furgoni/' + id + '/carico', { prodottoId, quantita }),
   },
   costiMezzo: {
     list: () => request('GET', '/costi-mezzo'),
