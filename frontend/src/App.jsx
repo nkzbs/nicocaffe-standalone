@@ -9,6 +9,15 @@ import { api, getToken, setToken, clearToken } from './api';
 
 const IVA_RATE = 0.22;
 
+// Dati aziendali reali per intestazione documenti stampabili (bolla, fattura, ordine, corrispettivo, distinta versamento).
+const AZIENDA = {
+  ragioneSociale: 'TORREFAZIONE NICO CAFFE SRL',
+  indirizzo: 'Via Quattro Novembre 2 — 25121 Brescia (BS)',
+  piva: '04577750989',
+  pivaEuropea: 'IT04577750989',
+  logoUrl: '/nico-logo.png',
+};
+
 const TIPI_PAGAMENTO_OPTIONS = [
   { value: 'Ri.Ba.30', label: 'Ri.Ba. 30 (data fattura + 30gg)' },
   { value: 'Ri.Ba.30FM', label: 'Ri.Ba. 30 FM (fine mese + 30gg)' },
@@ -556,7 +565,7 @@ tr:last-child td{border-bottom:none}
 @media print{.print-btn{display:none!important}body{padding:20px}}
 </style></head><body>
 ${html}
-<div class="footer">Nico Caffè Torrefazione · Via del Caffè 1, 80100 Napoli · P.IVA 01234560000<br>Documento generato il ${new Date().toLocaleDateString('it-IT')}</div>
+<div class="footer">${AZIENDA.ragioneSociale} · ${AZIENDA.indirizzo} · P.IVA ${AZIENDA.piva}<br>Documento generato il ${new Date().toLocaleDateString('it-IT')}</div>
 <button class="print-btn" onclick="window.print()">🖨&nbsp; Stampa / Salva PDF</button>
 </body></html>`;
 
@@ -601,7 +610,7 @@ function buildFatturaHTML(fattura, db) {
   ).join('');
   return `
   <div class="row" style="margin-bottom:24px">
-    <div><div class="logo">☕ Nico Caffè</div><div class="sub">Torrefazione artigianale<br>Via del Caffè 1 — 80100 Napoli<br>P.IVA 01234560000</div></div>
+    <div><img src="${AZIENDA.logoUrl}" alt="Nico Caffè" style="height:44px;display:block;margin-bottom:6px" /><div class="sub">${AZIENDA.ragioneSociale}<br>${AZIENDA.indirizzo}<br>P.IVA ${AZIENDA.piva}</div></div>
     <div style="text-align:right"><h2>FATTURA</h2><div class="badge">${fattura.numero}</div><br><div class="label">Data emissione</div><div class="value">${new Date(fattura.data).toLocaleDateString('it-IT')}</div><div class="label" style="margin-top:6px">Scadenza</div><div class="value">${fattura.scadenza ? new Date(fattura.scadenza).toLocaleDateString('it-IT') : '—'}</div></div>
   </div>
   <hr class="divider">
@@ -631,7 +640,7 @@ function buildOrdineHTML(ordine, db) {
   };
   return `
   <div class="row" style="margin-bottom:24px">
-    <div><div class="logo">☕ Nico Caffè</div><div class="sub">Torrefazione artigianale<br>Via del Caffè 1 — 80100 Napoli</div></div>
+    <div><img src="${AZIENDA.logoUrl}" alt="Nico Caffè" style="height:44px;display:block;margin-bottom:6px" /><div class="sub">${AZIENDA.ragioneSociale}<br>${AZIENDA.indirizzo}</div></div>
     <div style="text-align:right"><h2>CONFERMA ORDINE</h2><div class="badge">${ordine.id}</div><br><div class="label">Data</div><div class="value">${new Date(ordine.data).toLocaleDateString('it-IT')}</div></div>
   </div>
   <hr class="divider">
@@ -672,8 +681,8 @@ function buildBollaHTML(ordine, db) {
   }
   return `
   <div style="text-align:center;margin-bottom:8px">
-    <div style="font-size:16px;font-weight:700;letter-spacing:0.5px">☕ NICO CAFFÈ</div>
-    <div style="font-size:9px;color:#57534e">Torrefazione artigianale</div>
+    <img src="${AZIENDA.logoUrl}" alt="Nico Caffè" style="height:38px;display:block;margin:0 auto 4px" />
+    <div style="font-size:8px;color:#57534e">${AZIENDA.ragioneSociale}</div>
   </div>
   <div class="b-divider"></div>
   <div style="font-size:11px;font-weight:700;text-align:center;margin:4px 0">BOLLA DI CONSEGNA</div>
@@ -697,7 +706,7 @@ function buildBollaHTML(ordine, db) {
     <div>Firma per ricevuta merce:</div>
     <div style="border-bottom:1px solid #78716c;margin-top:18px"></div>
   </div>
-  <div style="text-align:center;font-size:8px;color:#a8a29e;margin-top:10px">Nico Caffè · Via del Caffè 1, Napoli</div>`;
+  <div style="text-align:center;font-size:8px;color:#a8a29e;margin-top:10px">${AZIENDA.ragioneSociale} · ${AZIENDA.indirizzo} · P.IVA ${AZIENDA.piva}</div>`;
 }
 
 function buildCorrispettivoHTML(corrispettivo, db) {
@@ -709,7 +718,7 @@ function buildCorrispettivoHTML(corrispettivo, db) {
   };
   return `
   <div class="row" style="margin-bottom:24px">
-    <div><div class="logo">☕ Nico Caffè</div><div class="sub">Torrefazione artigianale<br>Via del Caffè 1 — 80100 Napoli<br>P.IVA 01234560000</div></div>
+    <div><img src="${AZIENDA.logoUrl}" alt="Nico Caffè" style="height:44px;display:block;margin-bottom:6px" /><div class="sub">${AZIENDA.ragioneSociale}<br>${AZIENDA.indirizzo}<br>P.IVA ${AZIENDA.piva}</div></div>
     <div style="text-align:right"><h2>CORRISPETTIVO</h2><div class="badge">${corrispettivo.numero || corrispettivo.id}</div><br><div class="label">Data</div><div class="value">${new Date(corrispettivo.data).toLocaleDateString('it-IT')}</div></div>
   </div>
   <hr class="divider">
@@ -1292,7 +1301,7 @@ function buildDistintaVersamentoHTML(distinta, agente) {
   const rigaHTML = (d) => `<tr><td>${formatDate(d.data)}</td><td>${d.ordineId}</td><td>${d.clienteRagioneSociale}</td><td>${d.modalita}</td><td class="right">€ ${d.importo.toFixed(2)}</td></tr>`;
   return `
   <div class="row" style="margin-bottom:24px">
-    <div><div class="logo">☕ Nico Caffè</div><div class="sub">Torrefazione artigianale<br>Via del Caffè 1 — 80100 Napoli</div></div>
+    <div><img src="${AZIENDA.logoUrl}" alt="Nico Caffè" style="height:44px;display:block;margin-bottom:6px" /><div class="sub">${AZIENDA.ragioneSociale}<br>${AZIENDA.indirizzo}</div></div>
     <div style="text-align:right"><h2>DISTINTA DI VERSAMENTO</h2><div class="badge">${distinta.id}</div><br><div class="label">Generata il</div><div class="value">${new Date(distinta.dataGenerazione).toLocaleDateString('it-IT')}</div></div>
   </div>
   <hr class="divider">
